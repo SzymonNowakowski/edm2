@@ -39,6 +39,7 @@ class InceptionV3Detector(Detector):
     def __init__(self):
         super().__init__(feature_dim=2048)
         url = 'https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/metrics/inception-2015-12-05.pkl'
+        url = 'fid/inception-2015-12-05.pkl'
         with dnnlib.util.open_url(url, verbose=False) as f:
             self.model = pickle.load(f)
 
