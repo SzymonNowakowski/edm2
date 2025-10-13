@@ -86,15 +86,94 @@ def edm_sampler(
         ref_Dx = gnet(x, t, labels).to(dtype)
         return ref_Dx.lerp(Dx, guidance)
 
+    # print all arguments
+    print(f"EDM2 sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidane={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
+
     # Time step discretization.
     step_indices = torch.arange(num_steps, dtype=dtype, device=noise.device)
+    # Create the index vector [0, 1, ..., num_steps-1] on the same device as latents, in float64.
+    # We’ll use these indices to build the noise schedule.
+
     t_steps = (sigma_max ** (1 / rho) + step_indices / (num_steps - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
-    t_steps = torch.cat([t_steps, torch.zeros_like(t_steps[:1])]) # t_N = 0
+    # This is the Karras (EDM and EDM2) sigma schedule.
+    # It linearly interpolates between sigma_max^(1/ρ) and sigma_min^(1/ρ) and then raises back to the power ρ.
+    # Result: a monotone decreasing sequence from sigma_max down to sigma_min, spaced more densely at small sigmas when ρ>1 (commonly ρ=7).
+
+    # >>>>>>>>>>>>>>>>>>>>>>> BEGIN: Alternative schedule block (mirrors EDM template) <<<<<<<<<<<<<<<<<<<<<<<<<
+    # The alternative schedule replaces the segment inside [alt_sigma_min, alt_sigma_max] with a denser path.
+    alt_sigma_max = 80.0          # the alternative schedule
+    alt_sigma_min = 0.002
+    alt_num_steps = 4000
+    eta_divisor   = 16.0          # divide the optimal eta; use >1.0 to reduce noise below the optimal level
+
+    # Remove from t_steps any values inside [alt_sigma_min, alt_sigma_max].
+    mask = (t_steps < alt_sigma_min) | (t_steps > alt_sigma_max)
+    t_steps_filtered = t_steps[mask]
+    # print("Filtered steps:", t_steps_filtered.detach().cpu().numpy())
+
+    # Build dense alt steps (descending) between alt_sigma_max and alt_sigma_min.
+    alt_indices = torch.linspace(0, 1, steps=alt_num_steps, dtype=dtype, device=noise.device)
+    alt_steps = (alt_sigma_max ** (1.0 / rho) + alt_indices * (alt_sigma_min ** (1.0 / rho) - alt_sigma_max ** (1.0 / rho))) ** rho
+
+    # Keep original parts outside the interval.
+    above = t_steps[t_steps > alt_sigma_max]
+    below = t_steps[t_steps < alt_sigma_min]
+
+    # Merge everything, preserving strict descending order.
+    t_steps = torch.cat([above, alt_steps, below])
+    # print("Merged steps:", t_steps.detach().cpu().numpy())
+
+    # Sanity check: strictly descending.
+    assert torch.all(t_steps[:-1] > t_steps[1:]), "New schedule is not strictly descending!"
+
+    # Append an explicit zero step (t_N = 0) for convenience.
+    # This is used to compute the final step size (t_{N-1} - t_N) and simplifies
+    # the code below since we don't need a special case for the last step.
+    t_steps = torch.cat([t_steps, torch.zeros_like(t_steps[:1])])  # t_N = 0
+    # >>>>>>>>>>>>>>>>>>>>>>> END: Alternative schedule block <<<<<<<<<<<<<<<<<<<<<<<<<
+
+    print("The most original steps:", t_steps.detach().cpu().numpy())
 
     # Main sampling loop.
     x_next = noise.to(dtype) * t_steps[0]
-    for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])): # 0, ..., N-1
+    for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])):  # 0, ..., N-1
         x_cur = x_next
+
+        # ===================== Alternative schedule in-loop branch (mirrors EDM + continue) =====================
+        if (t_cur < alt_sigma_max) and (t_cur > alt_sigma_min):
+            # t_cur and t_next are already on our merged schedule; use x0-mixing step with reduced eta.
+            sigma_t   = t_cur
+            sigma_tm1 = t_next
+
+            # gamma_tm1_reciprocal ≈ (sigma_{t+1} / sigma_t)^2, clamped to [0, 1]
+            gamma_tm1_reciprocal = torch.clamp(sigma_tm1 / torch.clamp(sigma_t, min=torch.as_tensor(1e-20, dtype=dtype, device=noise.device)), max=1.0) ** 2
+
+            # Optimal eta for the variance-preserving step, then reduce it by eta_divisor.
+            one = torch.as_tensor(1.0, dtype=dtype, device=noise.device)
+            eta_optim_tm1 = torch.sqrt(torch.clamp(one - gamma_tm1_reciprocal, min=0.0))
+            eta_used_tm1  = eta_optim_tm1 / eta_divisor
+
+            # Coefficients for blending current state, predicted x0, and fresh noise.
+            square_root_tm1_s = torch.sqrt(torch.clamp(one - eta_used_tm1 ** 2, min=0.0))
+            r_sqrt = torch.sqrt(torch.clamp(gamma_tm1_reciprocal, min=0.0, max=1.0))  # == (sigma_tm1 / sigma_t)
+            coef_Xt  = r_sqrt * square_root_tm1_s
+            coef_X0  = one - coef_Xt
+            coef_eps = sigma_tm1 * eta_used_tm1
+
+            # EDM2 denoiser: denoise(x, t) returns ~X0 (guided if guidance != 1).
+            x0_hat = denoise(x_cur, sigma_t)
+
+            # Draw fresh noise and update.
+            cur_plus_noise = coef_Xt * x_cur + coef_eps * randn_like(x_cur)
+            x_next = coef_X0 * x0_hat + cur_plus_noise
+
+            # 2nd-order correction: average of x0 at start/end (no division by zero at final step).
+            if i < num_steps - 1:
+                denoised_next = denoise(x_next, sigma_tm1)
+                x_next = coef_X0 * (denoised_next + x0_hat) * 0.5 + cur_plus_noise
+
+            continue  # Skip the standard EDM2 (churn + Heun) path on alt steps.
+        # ========================================================================================================
 
         # Increase noise temporarily.
         if S_churn > 0 and S_min <= t_cur <= S_max:
@@ -115,6 +194,7 @@ def edm_sampler(
             x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
 
     return x_next
+
 
 #----------------------------------------------------------------------------
 # Wrapper for torch.Generator that allows specifying a different random seed
