@@ -96,7 +96,7 @@ warnings.filterwarnings('ignore', '1Torch was not compiled with flash attention'
 # === Done ===
 # du -ch *.pkl | tail -n 1
 #
-# Estimated total size: ~20–30 GB
+# Total size: ~49 GB
 # -----------------------------------------------------------------------------
 
 
@@ -184,24 +184,28 @@ def edm_sampler(
     # The alternative schedule replaces the segment inside [alt_sigma_min, alt_sigma_max] with a denser path.
     alt_sigma_max = 80.0          # the alternative schedule
     alt_sigma_min = 0.002
-    alt_num_steps = 4000
-    eta_divisor   = 16.0          # divide the optimal eta; use >1.0 to reduce noise below the optimal level
+    alt_num_steps = 0        # >0 to enable the alternative schedule
+    eta_divisor   = 1.0          # divide the optimal eta; use >1.0 to reduce noise below the optimal level
 
-    # Build dense alt steps (descending) between alt_sigma_max and alt_sigma_min
-    alt_indices = torch.linspace(0, 1, steps=alt_num_steps, dtype=dtype, device=noise.device)
-    alt_steps = (alt_sigma_max ** (1.0 / rho) + alt_indices * (alt_sigma_min ** (1.0 / rho) - alt_sigma_max ** (1.0 / rho))) ** rho
+    if alt_num_steps > 0:
+        # Build dense alt steps (descending) between alt_sigma_max and alt_sigma_min
+        alt_indices = torch.linspace(0, 1, steps=alt_num_steps, dtype=dtype, device=noise.device)
+        alt_steps = (alt_sigma_max ** (1.0 / rho) + alt_indices * (alt_sigma_min ** (1.0 / rho) - alt_sigma_max ** (1.0 / rho))) ** rho
 
-    # Keep original parts outside the interval (remove from t_steps any values inside [alt_sigma_min, alt_sigma_max] range)    above = t_steps[t_steps > alt_sigma_max]
-    below = t_steps[t_steps < alt_sigma_min]
-    # print("Above steps:", above.cpu().numpy())
-    # print("Below steps:", below.cpu().numpy())
+        # Keep original parts outside the interval (remove from t_steps any values inside [alt_sigma_min, alt_sigma_max] range)
+        above = t_steps[t_steps > alt_sigma_max]
+        below = t_steps[t_steps < alt_sigma_min]
+        # print("Above steps:", above.cpu().numpy())
+        # print("Below steps:", below.cpu().numpy())
 
-    # Merge everything, preserving strict descending order
-    t_steps = torch.cat([above, alt_steps, below])
-    print("Merged steps:", t_steps.detach().cpu().numpy())
+        # Merge everything, preserving strict descending order
+        t_steps = torch.cat([above, alt_steps, below])
+        print("Merged steps:", t_steps.detach().cpu().numpy())
 
-    # Sanity check: strictly descending.
-    assert torch.all(t_steps[:-1] > t_steps[1:]), "New schedule is not strictly descending!"
+        # Sanity check: strictly descending.
+        assert torch.all(t_steps[:-1] > t_steps[1:]), "New schedule is not strictly descending!"
+    else:
+        print("Skipping alternative schedule; using original EDM t_steps.")
 
     # Append an explicit zero step (t_N = 0) for convenience
     # This is used to compute the final step size (t_{N-1} - t_N) and simplifies
