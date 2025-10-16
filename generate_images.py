@@ -19,6 +19,10 @@ import PIL.Image
 import dnnlib
 from torch_utils import distributed as dist
 
+# Make sure the runtime knows the classes/loader:
+from training.encoders import StabilityVAEEncoder, load_stability_vae
+
+
 warnings.filterwarnings('ignore', '`resume_download` is deprecated')
 warnings.filterwarnings('ignore', 'You are using `torch.load` with `weights_only=False`')
 warnings.filterwarnings('ignore', '1Torch was not compiled with flash attention')
