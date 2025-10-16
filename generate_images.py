@@ -22,6 +22,16 @@ from torch_utils import distributed as dist
 # Make sure the runtime knows the classes/loader:
 from training.encoders import StabilityVAEEncoder, load_stability_vae
 
+# --- DEBUG: show who calls diffusers  ---
+import traceback
+from diffusers import models as _diff_models
+_orig = _diff_models.AutoencoderKL.from_pretrained
+def _spy_from_pretrained(*args, **kwargs):
+    print(f"[DIFFUSERS] from_pretrained arg0={args[0]!r} local_files_only={kwargs.get('local_files_only')} cache_dir={kwargs.get('cache_dir')}")
+    traceback.print_stack(limit=10)
+    return _orig(*args, **kwargs)
+_diff_models.AutoencoderKL.from_pretrained = staticmethod(_spy_from_pretrained)
+
 
 warnings.filterwarnings('ignore', '`resume_download` is deprecated')
 warnings.filterwarnings('ignore', 'You are using `torch.load` with `weights_only=False`')
