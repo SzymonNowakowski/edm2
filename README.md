@@ -1,3 +1,25 @@
+## Directories required for this (local) edm2 version 
+
+### In the **home** directory of the user running the code:
+- `~/.cache/dnnlib/torch_hub` - cache for the pre-trained DINOv2 models
+
+The following data is needed in the **`edm2`** directory of the user running the code:
+### In the local **`edm2/`** working directory
+- `dataset-refs/`  
+  Reference data required for metric computation:
+  - `img512.pkl` – reference statistics for FID at 512×512 resolution  
+  - `inception-2015-12-05.pkl` – Inception V3 model used for FID computation
+
+- `precomputed_networks/`  
+  Pre-trained EDM2 networks used for image generation and reconstruction.  
+  You only need to keep the specific `.pkl` files referenced in your presets or scripts.  
+  Example filenames (schema):  
+  - `edm2-img512-s-2147483-0.070.pkl`  
+  - `edm2-img512-xs-0134217-0.125.pkl`  
+  *(No need to store the entire collection — only what your configuration uses.)*
+
+- `stabilityai/sd-vae-ft-mse/` - the definition of `StabilityVAEEncoder` 
+  
 ## EDM2 and Autoguidance &mdash; Official PyTorch implementation
 
 ![Teaser image](./docs/teaser-2048x512.jpg)
