@@ -135,6 +135,9 @@ class StabilityVAEEncoder(Encoder):
 
 def load_stability_vae(vae_name='precomputed_networks/stabilityai/sd-vae-ft-mse', device=torch.device('cpu')):
     import dnnlib
+
+    print(f"[load_stability_vae] vae_name={vae_name}")  # <— see the real value being passed
+
     cache_dir = dnnlib.make_cache_dir_path('diffusers')
     os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
     os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = '1'
