@@ -157,7 +157,7 @@ def edm_sampler(
     net, noise, labels=None, gnet=None,
     num_steps=32, sigma_min=0.002, sigma_max=80, rho=7, guidance=1,
     S_churn=0, S_min=0, S_max=float('inf'), S_noise=1,
-    dtype=torch.float32, randn_like=torch.randn_like, sampler_fn_name='not_important'
+    dtype=torch.float32, randn_like=torch.randn_like
 ):
     # Guided denoiser.
     def denoise(x, t):
@@ -307,7 +307,7 @@ def pokar_sampler(
         net, noise, labels=None, gnet=None,
         num_steps=32, sigma_min=0.002, sigma_max=80, rho=7, guidance=1,
         S_churn=0, S_min=0, S_max=float('inf'), S_noise=1,
-        dtype=torch.float32, randn_like=torch.randn_like, sampler_fn_name='not_important'
+        dtype=torch.float32, randn_like=torch.randn_like
 ):
 
     # Guided denoiser.
@@ -352,7 +352,7 @@ def pokar_sampler(
     delta_t = (time_max - time_min) / (num_steps - 1)
     lambda_t = torch.cumsum(lambda_prime * delta_t, dim=0)
     lambda_t = lambda_t - lambda_t[0]  # remove additive constant
-    rho_t = np.exp(lambda_t)  # multiplicative constant irrelevant
+    rho_t = torch.exp(lambda_t)  # multiplicative constant irrelevant
 
     r_t_inv = ring_rho_inv/rho_t
 
@@ -432,6 +432,7 @@ def generate_images(
     verbose             = True,                 # Enable status prints?
     device              = torch.device('cuda'), # Which compute device to use.
     sampler_fn          = edm_sampler,          # Which sampler function to use.
+    smpler_fn_name     = 'edm_sampler',        # Name of the sampler function (for logging purposes).
     **sampler_kwargs,                           # Additional arguments for the sampler function.
 ):
     # Rank 0 goes first.
