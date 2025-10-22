@@ -432,7 +432,7 @@ def generate_images(
     verbose             = True,                 # Enable status prints?
     device              = torch.device('cuda'), # Which compute device to use.
     sampler_fn          = edm_sampler,          # Which sampler function to use.
-    smpler_fn_name     = 'edm_sampler',        # Name of the sampler function (for logging purposes).
+    sampler_fn_name     = 'edm_sampler',        # Name of the sampler function (for logging purposes).
     **sampler_kwargs,                           # Additional arguments for the sampler function.
 ):
     # Rank 0 goes first.
