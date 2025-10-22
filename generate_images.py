@@ -20,6 +20,7 @@ import dnnlib
 from torch_utils import distributed as dist
 
 
+
 warnings.filterwarnings('ignore', '`resume_download` is deprecated')
 warnings.filterwarnings('ignore', 'You are using `torch.load` with `weights_only=False`')
 warnings.filterwarnings('ignore', '1Torch was not compiled with flash attention')
@@ -151,7 +152,7 @@ config_presets = {
 # EDM sampler from the paper
 # "Elucidating the Design Space of Diffusion-Based Generative Models",
 # extended to support classifier-free guidance.
-
+# I extended with with alternative diffusion schedule block (which mirrors EDM template).
 def edm_sampler(
     net, noise, labels=None, gnet=None,
     num_steps=32, sigma_min=0.002, sigma_max=80, rho=7, guidance=1,
@@ -297,6 +298,93 @@ def edm_sampler(
             # Prediction: Re-evaluate the slope at the end of the interval (x_next, t_next).
 
             x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
+            # Heun correction (2nd order): replace the Euler result by the trapezoidal rule—average of start/end slopes times the step size, applied from the same base point x_hat.
+
+    return x_next
+
+
+def pokar_sampler(
+    net, noise, labels=None, gnet=None,
+    num_steps=1e4, time_min=0.01, time_max=0.99, rho=7, guidance=1,
+    S_churn=0, S_min=0, S_max=float('inf'), S_noise=1,
+    dtype=torch.float32, randn_like=torch.randn_like,
+):
+
+    # Guided denoiser.
+    def denoise(x, t):
+        Dx = net(x, t, labels).to(dtype)
+        if guidance == 1:
+            return Dx
+        ref_Dx = gnet(x, t, labels).to(dtype)
+        return ref_Dx.lerp(Dx, guidance)
+
+    # print all arguments
+    print(f"Pokar sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidane={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
+
+    # Time step discretization.
+    step_indices = torch.arange(num_steps, dtype=dtype, device=noise.device)
+    # Create the index vector [0, 1, ..., num_steps-1] on the same device as latents, in float64.
+    # We’ll use these indices to build the noise schedule.
+
+    #karras_sigma_steps = (sigma_max ** (1 / rho) + step_indices / (num_steps - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
+    t_steps = time_min + step_indices / (num_steps - 1) * (time_max - time_min)  # time flows from time_min to time_max
+
+    # Inverse standard normal (ppf) via torch
+    z = torch.special.ndtri(t_steps)  # z = Φ^{-1}(t)
+
+    ring_rho_inv = torch.exp(-(-1.2 + 1.2 * z))
+    # in EDM schedules with alpha = 1, ring_rho = 1/sigma, so ring_rho_inv = sigma_t
+
+    # ring_lambda_prime = 1 / pdf(qnorm(t; -1.2,1.2); -1.2,1.2)
+    # For Normal(μ,σ): pdf(qnorm(t; μ,σ); μ,σ) = (1/σ) * φ(z), so 1/pdf = σ / φ(z).
+    phi_z = torch.exp(-0.5 * z ** 2) / torch.sqrt(torch.tensor(2.0 * torch.pi))
+    ring_lambda_prime = 1.2 / phi_z  # σ = 1.2
+
+    F_parametrization_S_t = torch.sqrt(1 + ring_rho_inv ** 2)
+    M_const = torch.max(ring_lambda_prime / F_parametrization_S_t ** 2)
+    S_t_M = F_parametrization_S_t * torch.sqrt(M_const)
+    lambda_prime = (S_t_M - torch.sqrt(S_t_M ** 2 - ring_lambda_prime)) ** 2
+    # now we integrate numerically lambda_prime to get lambda with initial condition lambda(t0) = 0
+    delta_t = (time_max - time_min) / (num_steps - 1)
+    lambda_t = torch.cumsum(lambda_prime * delta_t, dim=0)
+    lambda_t = lambda_t - lambda_t[0]  # remove additive constant
+    rho_t = np.exp(lambda_t)  # multiplicative constant irrelevant
+
+    r_t_inv = ring_rho_inv/rho_t
+
+    # This is the Karras (EDM and EDM2) sigma schedule.
+    # It linearly interpolates between sigma_max^(1/ρ) and sigma_min^(1/ρ) and then raises back to the power ρ.
+    # Result: a monotone decreasing sequence from sigma_max down to sigma_min, spaced more densely at small sigmas when ρ>1 (commonly ρ=7).
+
+    print("The eqivalent sigmas schedule:", ring_rho_inv.detach().cpu().numpy())
+    print("The r^-1 values:", r_t_inv.detach().cpu().numpy())
+
+    # Append an explicit final step (sigma=0) for convenience
+    ring_rho_inv = torch.cat([ring_rho_inv, torch.zeros_like(ring_rho_inv[:1])])  # sigma_N = 0
+    r_t_inv = torch.cat([r_t_inv, torch.zeros_like(r_t_inv[:1])])  # r^-1 = 0 at final step
+
+
+    x_next = noise.to(dtype) * ring_rho_inv[0]
+    # Initialize the state at the highest noise level (ring_rho_inv[0] ≈ sigma_max).
+    # noise variable is expected to be standard Gaussian noise ~ N(0, I) of shape [N, C, H, W] (or whatever your model uses).
+    # Multiplying by sigma_max gives a draw from N(0, sigma_max^2 I), which is the usual EDM2 starting point (pure noise).
+    # It’s cast to match the integrator’s dtype.
+    for i, (sigma_cur, sigma_next, r_inv_cur, r_inv_next) in enumerate(zip(ring_rho_inv[:-1], ring_rho_inv[1:], r_t_inv[:-1], r_t_inv[1:])):  # 0, ..., N-1
+        x_cur = x_next
+
+        # Euler step.
+        d_cur = (x_cur - denoise(x_cur, sigma_cur)) / r_inv_cur
+        # Compute the ODE slope at (x_cur, sigm_cur).
+
+        x_next = x_cur + (r_inv_next - r_inv_cur) * d_cur
+        # equivalently: x_next = r_inv_next/r_inv_cur * x_cur + (1 - r_inv_next/r_inv_cur) * denoise(x_cur, sigma_cur)
+
+        # Apply 2nd order correction.
+        if i < num_steps - 1:
+            d_prime = (x_next - denoise(x_next, sigma_next)) / r_inv_next
+            # Prediction: Re-evaluate the slope at the end of the interval (x_next, sigma_next).
+
+            x_next = x_next + (r_inv_next - r_inv_cur) * (0.5 * d_cur + 0.5 * d_prime)
             # Heun correction (2nd order): replace the Euler result by the trapezoidal rule—average of start/end slopes times the step size, applied from the same base point x_hat.
 
     return x_next
@@ -465,6 +553,7 @@ def parse_int_list(s):
 @click.option('--S_min', 'S_min',           help='Stoch. min noise level', metavar='FLOAT',                         type=click.FloatRange(min=0), default=0, show_default=True)
 @click.option('--S_max', 'S_max',           help='Stoch. max noise level', metavar='FLOAT',                         type=click.FloatRange(min=0), default='inf', show_default=True)
 @click.option('--S_noise', 'S_noise',       help='Stoch. noise inflation', metavar='FLOAT',                         type=float, default=1, show_default=True)
+@click.option('--sampler_fn',               help="Sampler function: [default: 'edm_sampler']", metavar='STR',       type=click.Choice(['edm_sampler', 'pokar_smapler']), default='edm_sampler', show_default=True)
 
 def cmdline(preset, **opts):
     """Generate random images using the given model.
