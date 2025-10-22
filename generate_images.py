@@ -157,7 +157,7 @@ def edm_sampler(
     net, noise, labels=None, gnet=None,
     num_steps=32, sigma_min=0.002, sigma_max=80, rho=7, guidance=1,
     S_churn=0, S_min=0, S_max=float('inf'), S_noise=1,
-    dtype=torch.float32, randn_like=torch.randn_like,
+    dtype=torch.float32, randn_like=torch.randn_like, sampler_fn_name='not_important'
 ):
     # Guided denoiser.
     def denoise(x, t):
@@ -307,7 +307,7 @@ def pokar_sampler(
         net, noise, labels=None, gnet=None,
         num_steps=32, sigma_min=0.002, sigma_max=80, rho=7, guidance=1,
         S_churn=0, S_min=0, S_max=float('inf'), S_noise=1,
-        dtype=torch.float32, randn_like=torch.randn_like,
+        dtype=torch.float32, randn_like=torch.randn_like, sampler_fn_name='not_important'
 ):
 
     # Guided denoiser.
