@@ -305,7 +305,7 @@ def edm_sampler(
 
 def pokar_sampler(
     net, noise, labels=None, gnet=None,
-    num_steps=1e4, time_min=0.01, time_max=0.99, rho=7, guidance=1,
+    num_steps=1e4, time_min=1e-2, time_max=0.99, rho=7, guidance=1,
     S_churn=0, S_min=0, S_max=float('inf'), S_noise=1,
     dtype=torch.float32, randn_like=torch.randn_like,
 ):
