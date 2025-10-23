@@ -370,7 +370,7 @@ def pokar_sampler(
     # It linearly interpolates between sigma_max^(1/ρ) and sigma_min^(1/ρ) and then raises back to the power ρ.
     # Result: a monotone decreasing sequence from sigma_max down to sigma_min, spaced more densely at small sigmas when ρ>1 (commonly ρ=7).
 
-    print("The eqivalent sigmas schedule:", ring_rho_inv.detach().cpu().numpy())
+    print("The sigma schedule:", ring_rho_inv.detach().cpu().numpy())
     print("The r^-1 values:", r_t_inv.detach().cpu().numpy())
 
     # Append an explicit final step (sigma=0) for convenience
