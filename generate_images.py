@@ -318,7 +318,8 @@ def pokar_sampler(
         ref_Dx = gnet(x, t, labels).to(dtype)
         return ref_Dx.lerp(Dx, guidance)
 
-    num_steps = 1e3
+    num_steps = 1e4 + 1
+    num_steps_generate = int((num_steps-1)/50) + 1
     time_min = 1e-6
     time_max = 0.99
 
@@ -344,7 +345,7 @@ def pokar_sampler(
     phi_z = torch.exp(-0.5 * z ** 2) / torch.sqrt(torch.tensor(2.0 * torch.pi))
     ring_lambda_prime = 1.2 / phi_z  # σ = 1.2
 
-    F_parametrization_S_t = torch.sqrt(1 + ring_rho_inv ** 2)
+    F_parametrization_S_t = torch.sqrt(1 + 4 * ring_rho_inv ** 2)
     M_const = torch.max(ring_lambda_prime / F_parametrization_S_t ** 2)
     S_t_M = F_parametrization_S_t * torch.sqrt(M_const)
     lambda_prime = (S_t_M - torch.sqrt(S_t_M ** 2 - ring_lambda_prime)) ** 2
@@ -356,6 +357,15 @@ def pokar_sampler(
 
     r_t_inv = ring_rho_inv/rho_t
 
+    # the original large number of steps was needed to be high for numerical integration accuracy
+    # now, subsample to num_steps_generate for generation
+    # first and last steps must be included
+    subsample = torch.linspace(0, num_steps-1, steps=num_steps_generate)
+    # it is integers already, but we need to explicitly cast it to use it as a subscript
+    subsample = subsample.long()
+    ring_rho_inv = ring_rho_inv[subsample]
+    r_t_inv = r_t_inv[subsample]
+
     # This is the Karras (EDM and EDM2) sigma schedule.
     # It linearly interpolates between sigma_max^(1/ρ) and sigma_min^(1/ρ) and then raises back to the power ρ.
     # Result: a monotone decreasing sequence from sigma_max down to sigma_min, spaced more densely at small sigmas when ρ>1 (commonly ρ=7).
@@ -366,7 +376,6 @@ def pokar_sampler(
     # Append an explicit final step (sigma=0) for convenience
     ring_rho_inv = torch.cat([ring_rho_inv, torch.zeros_like(ring_rho_inv[:1])])  # sigma_N = 0
     r_t_inv = torch.cat([r_t_inv, torch.zeros_like(r_t_inv[:1])])  # r^-1 = 0 at final step
-
 
     x_next = noise.to(dtype) * ring_rho_inv[0]
     # Initialize the state at the highest noise level (ring_rho_inv[0] ≈ sigma_max).
@@ -392,7 +401,6 @@ def pokar_sampler(
             # Heun correction (2nd order): replace the Euler result by the trapezoidal rule—average of start/end slopes times the step size, applied from the same base point x_hat.
 
     return x_next
-
 
 #----------------------------------------------------------------------------
 # Wrapper for torch.Generator that allows specifying a different random seed
