@@ -318,8 +318,8 @@ def pokar_sampler(
         ref_Dx = gnet(x, t, labels).to(dtype)
         return ref_Dx.lerp(Dx, guidance)
 
-    num_steps = 1e4
-    time_min = 1e-2
+    num_steps = 1e3
+    time_min = 1e-6
     time_max = 0.99
 
     # print all arguments
