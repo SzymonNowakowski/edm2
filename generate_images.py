@@ -320,8 +320,8 @@ def pokar_sampler(
 
     num_steps = 1e4 + 1
     num_steps_generate = int((num_steps-1)/50) + 1
-    time_min = 1e-6
-    time_max = 0.99
+    time_min = 0.004  # -> sigma = 80
+    time_max = 1.0 - 3.24e-10   # -> sigma = 0.002
 
     # print all arguments
     print(f"Pokar sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidane={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
