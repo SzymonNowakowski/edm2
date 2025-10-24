@@ -168,7 +168,7 @@ def edm_sampler(
         return ref_Dx.lerp(Dx, guidance)
 
     # print all arguments
-    print(f"EDM2 sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidane={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
+    print(f"EDM2 sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
 
     # Time step discretization.
     step_indices = torch.arange(num_steps, dtype=dtype, device=noise.device)
@@ -318,41 +318,64 @@ def pokar_sampler(
         ref_Dx = gnet(x, t, labels).to(dtype)
         return ref_Dx.lerp(Dx, guidance)
 
-    num_steps = 1e4 + 1
+    generation_dtype = torch.float64  # overriding the deafult, we need 64 bit precision to compute lambda prime and integrate it accurately
+
+    num_steps = int(1e4 + 1)
     num_steps_generate = int((num_steps-1)/50) + 1
-    time_min = 0.004  # -> sigma = 80
-    time_max = 1.0 - 3.24e-10   # -> sigma = 0.002
+
+    #well, it looks all the way around, but later we will be reversing the time scale
+    time_min = 0.996  # 0.004 --> sigma = 80
+    time_max = 3.24e-10   # 1 - 3.24e-10 --> sigma = 0.002
 
     # print all arguments
     print(f"Pokar sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidane={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
 
     # Time step discretization.
-    step_indices = torch.arange(num_steps, dtype=dtype, device=noise.device)
+    step_indices = torch.arange(num_steps, dtype=generation_dtype, device=noise.device)
     # Create the index vector [0, 1, ..., num_steps-1] on the same device as latents, in float64.
     # We’ll use these indices to build the noise schedule.
 
     #karras_sigma_steps = (sigma_max ** (1 / rho) + step_indices / (num_steps - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
-    t_steps = time_min + step_indices / (num_steps - 1) * (time_max - time_min)  # time flows from time_min to time_max
+    t_steps_reversed = torch.logspace(torch.log10(torch.tensor(time_max, dtype=generation_dtype)),
+                       torch.log10(torch.tensor(time_min, dtype=generation_dtype)),
+                       steps=num_steps,
+                       dtype=generation_dtype,
+                       device=noise.device)
+
+    # Now reverse the time steps to get t_steps flowing from time_min to time_max
+    t_steps = (1.0 - t_steps_reversed).flip(0)
+
+    # t_steps = time_min + step_indices / (num_steps - 1) * (time_max - time_min)  # time flows from time_min to time_max in a linear fashion
+    # not longer in use: the schedule it produces have only small signal-to-noise ratios.
 
     # Inverse standard normal (ppf) via torch
-    z = torch.special.ndtri(t_steps)  # z = Φ^{-1}(t)
+    z = torch.special.ndtri(t_steps).to(dtype).to(noise.device)  # z = Φ^{-1}(t)
 
     ring_rho_inv = torch.exp(-(-1.2 + 1.2 * z))
+
     # in EDM schedules with alpha = 1, ring_rho = 1/sigma, so ring_rho_inv = sigma_t
 
     # ring_lambda_prime = 1 / pdf(qnorm(t; -1.2,1.2); -1.2,1.2)
     # For Normal(μ,σ): pdf(qnorm(t; μ,σ); μ,σ) = (1/σ) * φ(z), so 1/pdf = σ / φ(z).
-    phi_z = torch.exp(-0.5 * z ** 2) / torch.sqrt(torch.tensor(2.0 * torch.pi))
+    phi_z = torch.exp(-0.5 * z ** 2) / torch.sqrt(torch.tensor(2.0 * torch.pi,  dtype=generation_dtype, device=noise.device))
     ring_lambda_prime = 1.2 / phi_z  # σ = 1.2
 
     F_parametrization_S_t = torch.sqrt(1 + 4 * ring_rho_inv ** 2)
     M_const = torch.max(ring_lambda_prime / F_parametrization_S_t ** 2)
     S_t_M = F_parametrization_S_t * torch.sqrt(M_const)
-    lambda_prime = (S_t_M - torch.sqrt(S_t_M ** 2 - ring_lambda_prime)) ** 2
+    lambda_prime = ring_lambda_prime/(S_t_M + torch.sqrt((S_t_M * S_t_M - ring_lambda_prime).clamp_min(0))) ** 2  ### numerically more stable, but equivalent to the original formula (S_t_M - torch.sqrt(S_t_M ** 2 - ring_lambda_prime)) ** 2
     # now we integrate numerically lambda_prime to get lambda with initial condition lambda(t0) = 0
-    delta_t = (time_max - time_min) / (num_steps - 1)
-    lambda_t = torch.cumsum(lambda_prime * delta_t, dim=0)
-    lambda_t = lambda_t - lambda_t[0]  # remove additive constant
+    t_starting_points = t_steps[:-1]
+    t_ending_points = t_steps[1:]
+    delta_t = t_ending_points - t_starting_points
+
+    # cumulative integral with λ(t0) = 0, length N, trapezoidal rule
+    lambda_t = torch.empty_like(t_steps, dtype=generation_dtype)
+    lambda_t[0] = 0
+    lambda_t[1:] = torch.cumsum(0.5 * (lambda_prime[:-1] + lambda_prime[1:]) * delta_t, dim=0)
+
+    lambda_t = lambda_t - torch.max(lambda_t)  # substract a constant, max in this case, to make the exponential more robust numerically
+
     rho_t = torch.exp(lambda_t)  # multiplicative constant irrelevant
 
     r_t_inv = ring_rho_inv/rho_t
@@ -360,7 +383,7 @@ def pokar_sampler(
     # the original large number of steps was needed to be high for numerical integration accuracy
     # now, subsample to num_steps_generate for generation
     # first and last steps must be included
-    subsample = torch.linspace(0, num_steps-1, steps=num_steps_generate)
+    subsample = torch.linspace(0, num_steps-1, steps=num_steps_generate, device=noise.device)
     # it is integers already, but we need to explicitly cast it to use it as a subscript
     subsample = subsample.long()
     ring_rho_inv = ring_rho_inv[subsample]
@@ -373,9 +396,9 @@ def pokar_sampler(
     print("The sigma schedule:", ring_rho_inv.detach().cpu().numpy())
     print("The r^-1 values:", r_t_inv.detach().cpu().numpy())
 
-    # Append an explicit final step (sigma=0) for convenience
-    ring_rho_inv = torch.cat([ring_rho_inv, torch.zeros_like(ring_rho_inv[:1])])  # sigma_N = 0
-    r_t_inv = torch.cat([r_t_inv, torch.zeros_like(r_t_inv[:1])])  # r^-1 = 0 at final step
+    # Append an explicit final step (sigma=0) for convenience and recast to desired dtype
+    ring_rho_inv = torch.cat([ring_rho_inv, torch.zeros_like(ring_rho_inv[:1])]).to(dtype)  # sigma_N = 0
+    r_t_inv = torch.cat([r_t_inv, torch.zeros_like(r_t_inv[:1])]).to(dtype)  # r^-1 = 0 at final step
 
     x_next = noise.to(dtype) * ring_rho_inv[0]
     # Initialize the state at the highest noise level (ring_rho_inv[0] ≈ sigma_max).
@@ -385,20 +408,27 @@ def pokar_sampler(
     for i, (sigma_cur, sigma_next, r_inv_cur, r_inv_next) in enumerate(zip(ring_rho_inv[:-1], ring_rho_inv[1:], r_t_inv[:-1], r_t_inv[1:])):  # 0, ..., N-1
         x_cur = x_next
 
+        # Additional noise
+        # note in the last step it computes without an overflow, just adds zero noise since sigma_next = 0
+        additional_noise = sigma_next * torch.sqrt(1 - (r_inv_next / r_inv_cur) ** 2) * randn_like(x_cur)
+
         # Euler step.
         d_cur = (x_cur - denoise(x_cur, sigma_cur)) / r_inv_cur
         # Compute the ODE slope at (x_cur, sigm_cur).
 
         x_next = x_cur + (r_inv_next - r_inv_cur) * d_cur
         # equivalently: x_next = r_inv_next/r_inv_cur * x_cur + (1 - r_inv_next/r_inv_cur) * denoise(x_cur, sigma_cur)
+        # note in the last step it just moves to denoised directly since r_inv_next = 0
 
-        # Apply 2nd order correction.
-        if i < num_steps - 1:
+        # Apply 2nd order correction. Note in the last step it is simply not executed
+        if i < num_steps_generate - 1:
             d_prime = (x_next - denoise(x_next, sigma_next)) / r_inv_next
             # Prediction: Re-evaluate the slope at the end of the interval (x_next, sigma_next).
 
             x_next = x_next + (r_inv_next - r_inv_cur) * (0.5 * d_cur + 0.5 * d_prime)
             # Heun correction (2nd order): replace the Euler result by the trapezoidal rule—average of start/end slopes times the step size, applied from the same base point x_hat.
+
+        x_next = x_next + additional_noise
 
     return x_next
 
