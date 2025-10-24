@@ -394,7 +394,7 @@ def pokar_sampler(
     # Append an explicit final step (sigma=0) for convenience and recast to desired dtype (float32 by default)
     ring_rho_inv = torch.cat([ring_rho_inv, torch.zeros_like(ring_rho_inv[:1])]).to(dtype)  # sigma_N = 0
     r_t_inv = torch.cat([r_t_inv, torch.zeros_like(r_t_inv[:1])]).to(dtype)  # r^-1 = 0 at final step
-    rho_t = torch.cat([rho_t, rho_t[:-1]]).to(dtype)  # last rho = previous rho at final step. It doesn't matter much, because noise is not added anyway
+    rho_t = torch.cat([rho_t, rho_t[-1:]]).to(dtype)  # last rho = previous rho at final step. It doesn't matter much, because noise is not added anyway
 
     x_next = noise.to(dtype) * ring_rho_inv[0]
     # Initialize the state at the highest noise level (ring_rho_inv[0] ≈ sigma_max).
