@@ -382,11 +382,14 @@ def pokar_sampler(
     ring_rho_inv = ring_rho_inv[subsample]
     r_t_inv = r_t_inv[subsample]
     rho_t = rho_t[subsample]
+    lambda_t = lambda_t[subsample]
+    lambda_prime = lambda_prime[subsample]
 
     print("The sigma schedule:", ring_rho_inv.detach().cpu().numpy())
     print("The r^-1 values:", r_t_inv.detach().cpu().numpy())
     print("The rho values:", rho_t.detach().cpu().numpy())
-
+    print("The lambda values:", lambda_t.detach().cpu().numpy())
+    print("The lambda prime values:", lambda_prime.detach().cpu().numpy())
 
     # Append an explicit final step (sigma=0) for convenience and recast to desired dtype (float32 by default)
     ring_rho_inv = torch.cat([ring_rho_inv, torch.zeros_like(ring_rho_inv[:1])]).to(dtype)  # sigma_N = 0
