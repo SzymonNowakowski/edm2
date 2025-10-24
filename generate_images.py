@@ -367,7 +367,7 @@ def pokar_sampler(
     lambda_t = torch.zeros_like(t_steps, dtype=prepare_schedule_dtype)  #lambda_t[0] = 0
     lambda_t[1:] = torch.cumsum(0.5 * (lambda_prime[:-1] + lambda_prime[1:]) * delta_t, dim=0)
 
-    lambda_t = lambda_t - torch.max(lambda_t)  # substract a constant, max in this case, to make the exponential (which happens next line) more robust numerically
+    lambda_t = lambda_t - lambda_t[0]  # substract a constant
 
     rho_t = torch.exp(lambda_t)  # multiplicative constant irrelevant
 
@@ -383,18 +383,20 @@ def pokar_sampler(
     r_t_inv = r_t_inv[subsample]
     rho_t = rho_t[subsample]
 
-    # This is the Karras (EDM and EDM2) sigma schedule.
-    # It linearly interpolates between sigma_max^(1/ρ) and sigma_min^(1/ρ) and then raises back to the power ρ.
-    # Result: a monotone decreasing sequence from sigma_max down to sigma_min, spaced more densely at small sigmas when ρ>1 (commonly ρ=7).
-
     print("The sigma schedule:", ring_rho_inv.detach().cpu().numpy())
     print("The r^-1 values:", r_t_inv.detach().cpu().numpy())
     print("The rho values:", rho_t.detach().cpu().numpy())
+
 
     # Append an explicit final step (sigma=0) for convenience and recast to desired dtype (float32 by default)
     ring_rho_inv = torch.cat([ring_rho_inv, torch.zeros_like(ring_rho_inv[:1])]).to(dtype)  # sigma_N = 0
     r_t_inv = torch.cat([r_t_inv, torch.zeros_like(r_t_inv[:1])]).to(dtype)  # r^-1 = 0 at final step
     rho_t = torch.cat([rho_t, rho_t[-1:]]).to(dtype)  # last rho = previous rho at final step. It doesn't matter much, because noise is not added anyway
+
+    n1 = len(ring_rho_inv)
+    n2 = len(r_t_inv)
+    n3 = len(rho_t)
+    assert n1 == n2 == n3, f"Length mismatch: rho_inv={n1}, r_inv={n2}, rho={n3}"
 
     x_next = noise.to(dtype) * ring_rho_inv[0]
     # Initialize the state at the highest noise level (ring_rho_inv[0] ≈ sigma_max).
@@ -422,7 +424,7 @@ def pokar_sampler(
             d_prime = (x_next - denoise(x_next, sigma_next)) / r_inv_next
             # Prediction: Re-evaluate the slope at the end of the interval (x_next, sigma_next).
 
-            x_next = x_next + (r_inv_next - r_inv_cur) * (0.5 * d_cur + 0.5 * d_prime)
+            x_next = x_cur + (r_inv_next - r_inv_cur) * (0.5 * d_cur + 0.5 * d_prime)
             # Heun correction (2nd order): replace the Euler result by the trapezoidal rule—average of start/end slopes times the step size, applied from the same base point x_hat.
 
         x_next = x_next + additional_noise  # for the last step, it equals the denoiser without any additional noise
