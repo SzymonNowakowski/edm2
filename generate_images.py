@@ -187,7 +187,7 @@ def edm_sampler(
     alt_sigma_max = 80.0          # the alternative schedule
     alt_sigma_min = 0.002
     alt_num_steps = 200        # >0 to enable the alternative schedule
-    eta_divisor   = 4.0          # divide the optimal eta; use >1.0 to reduce noise below the optimal level
+    eta_divisor   = 1.0          # divide the optimal eta; use >1.0 to reduce noise below the optimal level
 
     if alt_num_steps > 0:
         # Build dense alt steps (descending) between alt_sigma_max and alt_sigma_min
@@ -195,8 +195,8 @@ def edm_sampler(
         alt_steps = (alt_sigma_max ** (1.0 / rho) + alt_indices * (alt_sigma_min ** (1.0 / rho) - alt_sigma_max ** (1.0 / rho))) ** rho
 
         # Keep original parts outside the interval (remove from t_steps any values inside [alt_sigma_min, alt_sigma_max] range)
-        above = t_steps[t_steps > alt_sigma_max]
-        below = t_steps[t_steps < alt_sigma_min]
+        above = t_steps[t_steps > alt_steps[0]]
+        below = t_steps[t_steps < alt_steps[-1]]
         # print("Above steps:", above.cpu().numpy())
         # print("Below steps:", below.cpu().numpy())
 
