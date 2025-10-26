@@ -186,7 +186,7 @@ def edm_sampler(
     # The alternative schedule replaces the segment inside [alt_sigma_min, alt_sigma_max] with a denser path.
     alt_sigma_max = 80.0          # the alternative schedule
     alt_sigma_min = 0.002
-    alt_num_steps = 0        # >0 to enable the alternative schedule
+    alt_num_steps = 200        # >0 to enable the alternative schedule
     eta_divisor   = 1.0          # divide the optimal eta; use >1.0 to reduce noise below the optimal level
 
     if alt_num_steps > 0:
