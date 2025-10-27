@@ -189,7 +189,7 @@ def edm_sampler(
     alt_sigma_max = 80.0          # the alternative schedule
     alt_sigma_min = 0.002
     alt_num_steps = 200        # >0 to enable the alternative schedule
-    eta_divisor = float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard EDM2 with a dedicated if statement below)
+    eta_divisor = float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard ODE EDM2 with a dedicated if statement below)
 
     if alt_num_steps > 0:
         # Build dense alt steps (descending) between alt_sigma_max and alt_sigma_min
@@ -228,7 +228,7 @@ def edm_sampler(
         x_cur = x_next
 
         # ===================== Alternative schedule in-loop branch (mirrors EDM + continue) =====================
-        if (t_cur < alt_steps[0]) and (t_cur > alt_steps[-1]) and not math.isinf(eta_divisor):    #### if eta_divisor is inf, skip alt steps, go straight to standard EDM2
+        if (t_cur < alt_steps[0]) and (t_cur > alt_steps[-1]) and not math.isinf(eta_divisor):    #### if eta_divisor is inf, skip alt steps, go straight to standard ODE EDM2
             # iterate over pairs (t_cur, t_next); the final pair ends at exactly zero noise.
             sigma_t   = t_cur
             sigma_tm1 = t_next # next (smaller) sigma from schedule
