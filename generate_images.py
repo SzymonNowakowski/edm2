@@ -228,7 +228,7 @@ def edm_sampler(
         x_cur = x_next
 
         # ===================== Alternative schedule in-loop branch (mirrors EDM + continue) =====================
-        if (t_cur < alt_steps[0]) and (t_cur > alt_steps[-1]) and not math.isinf(eta_divisor):    #### if eta_divisor is inf, skip alt steps, go straight to standard ODE EDM2
+        if alt_num_steps > 0 and t_cur < alt_steps[0] and t_cur > alt_steps[-1] and not math.isinf(eta_divisor):    #### if eta_divisor is inf, skip alt steps, go straight to standard ODE EDM2
             # iterate over pairs (t_cur, t_next); the final pair ends at exactly zero noise.
             sigma_t   = t_cur
             sigma_tm1 = t_next # next (smaller) sigma from schedule
