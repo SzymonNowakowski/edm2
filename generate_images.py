@@ -286,20 +286,26 @@ def edm_sampler(
             x_hat = x_cur
 
         # Euler step.
-        d_cur = (x_hat - denoise(x_hat, t_hat)) / t_hat
+        x_predictor_cur = denoise(x_hat, t_hat)
+        epsilon_predictor_cur = (x_hat - x_predictor_cur ) / t_hat
+
         # Compute the ODE slope at (x_hat, t_hat).
         # For the EDM probability-flow ODE, dx/dσ = (x - X0)/σ. Replacing X0 by denoised gives this slope.
 
-        x_next = x_hat + (t_next - t_hat) * d_cur
+        x_next = x_hat + (t_next - t_hat) * epsilon_predictor_cur
         # x_next = t_next/t_hat * x_hat + (1 - t_next/t_hat) * denoised  # eqivalently
         # Explicit Euler update: move from σ = t_hat down to the scheduled next σ = t_next using slope d_cur.
 
         # Apply 2nd order correction.
         if i < num_steps - 1:
-            d_prime = (x_next - denoise(x_next, t_next)) / t_next
+            x_predictor_next = denoise(x_next, t_next)
+            epsilon_predictor_next = (x_next - x_predictor_next) / t_next
             # Prediction: Re-evaluate the slope at the end of the interval (x_next, t_next).
 
-            x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
+            #EDM Karras update: - we are allowed to average epsilon terms multiplied by difference of sigmas
+            #x_next = x_hat + (t_next - t_hat) * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next)
+            # Pokar update:
+            x_next = t_next/t_hat * x_hat + (1 - t_next/t_hat) * (0.5 * x_predictor_cur + 0.5 * x_predictor_next)
             # Heun correction (2nd order): replace the Euler result by the trapezoidal rule—average of start/end slopes times the step size, applied from the same base point x_hat.
 
     return x_next
