@@ -169,7 +169,7 @@ def edm_sampler(
         ref_Dx = gnet(x, t, labels).to(dtype)
         return ref_Dx.lerp(Dx, guidance)
 
-    num_steps=63
+    num_steps=63  #TODO: remove after testing
 
     # print all arguments
     print(f"EDM2 sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
