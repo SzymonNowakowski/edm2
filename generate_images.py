@@ -169,6 +169,8 @@ def edm_sampler(
         ref_Dx = gnet(x, t, labels).to(dtype)
         return ref_Dx.lerp(Dx, guidance)
 
+    num_steps=63
+
     # print all arguments
     print(f"EDM2 sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
 
@@ -190,6 +192,7 @@ def edm_sampler(
     alt_sigma_min = 0.002
     alt_num_steps = 0        # >0 to enable the alternative schedule
     eta_divisor = float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard ODE EDM2 with a dedicated if statement below)
+    Heun_method=None  # one of "X", "epsilon", or None
 
     if alt_num_steps > 0:
         # Build dense alt steps (descending) between alt_sigma_max and alt_sigma_min
@@ -251,16 +254,16 @@ def edm_sampler(
             coef_eps = sigma_tm1 * eta_used_tm1
 
             # EDM2 denoiser: denoise(x, t) returns ~X0 (guided if guidance != 1)
-            x0_hat = denoise(x_cur, sigma_t)
+            x_predictor_cur = denoise(x_cur, sigma_t)
 
             # Draw fresh noise and update.
             cur_plus_noise = coef_Xt * x_cur + coef_eps * randn_like(x_cur)
-            x_next = coef_X0 * x0_hat + cur_plus_noise
+            x_next = coef_X0 * x_predictor_cur + cur_plus_noise
 
             ######## Apply 2nd order (Heun) correction.
             if i < num_steps - 1: # Heun (prediction–correction) is only applied if there is another step after this.
                 denoised_next = denoise(x_next, sigma_tm1)
-                x_next = coef_X0 * (denoised_next + x0_hat) * 0.5 + cur_plus_noise
+                x_next = coef_X0 * (denoised_next + x_predictor_cur) * 0.5 + cur_plus_noise
 
             continue  # Skip the standard EDM2 (churn + Heun) path on alt steps
         # ========================================================================================================
@@ -297,16 +300,19 @@ def edm_sampler(
         # Explicit Euler update: move from σ = t_hat down to the scheduled next σ = t_next using slope d_cur.
 
         # Apply 2nd order correction.
-        if i < num_steps - 1:
+        if Heun_method is not None and i < num_steps - 1:  # Heun (prediction–correction) is only applied if there is another step after this
             x_predictor_next = denoise(x_next, t_next)
             epsilon_predictor_next = (x_next - x_predictor_next) / t_next
             # Prediction: Re-evaluate the slope at the end of the interval (x_next, t_next).
 
-            #EDM Karras update: - we are allowed to average epsilon terms multiplied by difference of sigmas
-            #x_next = x_hat + (t_next - t_hat) * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next)
-            # Pokar update:
-            x_next = t_next/t_hat * x_hat + (1 - t_next/t_hat) * (0.5 * x_predictor_cur + 0.5 * x_predictor_next)
-            # Heun correction (2nd order): replace the Euler result by the trapezoidal rule—average of start/end slopes times the step size, applied from the same base point x_hat.
+            if Heun_method == "epsilon":
+                #EDM Karras update: - we are allowed to average epsilon terms multiplied by difference of sigmas
+                x_next = x_hat + (t_next - t_hat) * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next)
+                # Heun correction (2nd order): replace the Euler result by the trapezoidal rule—average of start/end slopes times the step size, applied from the same base point x_hat.
+            if Heun_method == "X":
+            # Pokarized Heun update:
+                x_next = t_next/t_hat * x_hat + (1 - t_next/t_hat) * (0.5 * x_predictor_cur + 0.5 * x_predictor_next)
+
 
     return x_next
 
