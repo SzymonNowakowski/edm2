@@ -169,7 +169,7 @@ def edm_sampler(
         ref_Dx = gnet(x, t, labels).to(dtype)
         return ref_Dx.lerp(Dx, guidance)
 
-    num_steps=63  #TODO: remove after testing
+
 
     # print all arguments
     print(f"EDM2 sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
@@ -192,7 +192,7 @@ def edm_sampler(
     alt_sigma_min = 0.002
     alt_num_steps = 0        # >0 to enable the alternative schedule
     eta_divisor = float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard ODE EDM2 with a dedicated if statement below)
-    Heun_method=None  # one of "X", "epsilon", or None
+    Heun_method="X"  # one of "X", "epsilon", or None
 
     if alt_num_steps > 0:
         # Build dense alt steps (descending) between alt_sigma_max and alt_sigma_min
@@ -219,6 +219,27 @@ def edm_sampler(
     # the code below since we don't need a special case for the last step
     # It mirrors the EDM behaviour too (but in EDM they also align it with the grid, which we don't do here).
     t_steps = torch.cat([t_steps, torch.zeros_like(t_steps[:1])])  # t_N = 0
+
+    r_vals = torch.tensor([  #rrML by Pokar
+        0.6999597, 0.6934608, 0.6866781, 0.6795930, 0.6721853,
+        0.6644328, 0.6563115, 0.6477951, 0.6388547, 0.6294589,
+        0.6195730, 0.6091590, 0.5981751, 0.5865751, 0.5743081,
+        0.5613179, 0.5475422, 0.5329123, 0.5173520, 0.5007772,
+        0.4830950, 0.4642033, 0.4439901, 0.4223341, 0.3991052,
+        0.3741673, 0.3473825, 0.3186209, 0.2877756, 0.2547910,
+        0.2197097, 0.0000000
+    ], dtype=dtype, device=noise.device)
+
+    betas_diffusion = torch.tensor([
+        43.820750055, 37.056938724, 31.198435771, 26.143576885, 21.799809479,
+        18.083093716, 14.917327801, 12.233797220, 9.970647575, 8.072380670,
+        6.489373495, 5.177419753, 4.097293556, 3.214334940, 2.498056800,
+        1.921772880, 1.462246414, 1.099359035, 0.815799531, 0.596772050,
+        0.429723313, 0.304088419, 0.211054793, 0.143343815, 0.095009680,
+        0.061254991, 0.038262609, 0.023043245, 0.013298259, 0.007297135,
+        0.003769064, 0.000000000
+    ], dtype=dtype, device=noise.device)
+
     # >>>>>>>>>>>>>>>>>>>>>>> END: Alternative schedule block <<<<<<<<<<<<<<<<<<<<<<<<<
 
     # Main sampling loop.
@@ -227,7 +248,7 @@ def edm_sampler(
     # noise variable is expected to be standard Gaussian noise ~ N(0, I) of shape [N, C, H, W] (or whatever your model uses).
     # Multiplying by sigma_max gives a draw from N(0, sigma_max^2 I), which is the usual EDM2 starting point (pure noise).
     # It’s cast to match the integrator’s dtype.
-    for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])):  # 0, ..., N-1
+    for i, (t_cur, t_next, r_val, beta) in enumerate(zip(t_steps[:-1], t_steps[1:], r_vals, betas_diffusion)):  # 0, ..., N-1
         x_cur = x_next
 
         # ===================== Alternative schedule in-loop branch (mirrors EDM + continue) =====================
@@ -295,7 +316,9 @@ def edm_sampler(
         # Compute the ODE slope at (x_hat, t_hat).
         # For the EDM probability-flow ODE, dx/dσ = (x - X0)/σ. Replacing X0 by denoised gives this slope.
 
-        x_next = x_hat + (t_next - t_hat) * epsilon_predictor_cur
+        random_diffusion = randn_like(x_cur) * beta
+
+        x_next = x_hat + (t_next - t_hat) * epsilon_predictor_cur # + random_diffusion
         # x_next = t_next/t_hat * x_hat + (1 - t_next/t_hat) * denoised  # eqivalently
         # Explicit Euler update: move from σ = t_hat down to the scheduled next σ = t_next using slope d_cur.
 
@@ -311,7 +334,7 @@ def edm_sampler(
                 # Heun correction (2nd order): replace the Euler result by the trapezoidal rule—average of start/end slopes times the step size, applied from the same base point x_hat.
             if Heun_method == "X":
             # Pokarized Heun update:
-                x_next = t_next/t_hat * x_hat + (1 - t_next/t_hat) * (0.5 * x_predictor_cur + 0.5 * x_predictor_next)
+                x_next = r_val * x_hat + (1 - r_val) * (0.5 * x_predictor_cur + 0.5 * x_predictor_next) + random_diffusion
 
 
     return x_next
