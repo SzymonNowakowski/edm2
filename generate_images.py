@@ -319,7 +319,7 @@ def edm_sampler(
         random_diffusion = randn_like(x_cur) * beta
 
         #original: x_next = x_hat + (t_next - t_hat) * epsilon_predictor_cur
-        x_next = r_val * x_hat + (1 - r_val) * x_predictor_cur
+        x_next = r_val * x_hat + (1 - r_val) * x_predictor_cur + random_diffusion
         # rewritten original:
         #x_next = t_next/t_hat * x_hat + (1 - t_next/t_hat) * denoised  # eqivalently
         # Explicit Euler update: move from σ = t_hat down to the scheduled next σ = t_next using slope d_cur.
@@ -332,7 +332,7 @@ def edm_sampler(
 
             if Heun_method == "epsilon":
                 #EDM Karras update: - we are allowed to average epsilon terms multiplied by difference of sigmas
-                x_next = x_hat + (t_next - t_hat) * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) 
+                x_next = x_hat + (t_next - t_hat) * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next)
                 # Heun correction (2nd order): replace the Euler result by the trapezoidal rule—average of start/end slopes times the step size, applied from the same base point x_hat.
             if Heun_method == "X":
             # Pokarized Heun update:
