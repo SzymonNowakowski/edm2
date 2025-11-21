@@ -318,7 +318,8 @@ def edm_sampler(
 
         random_diffusion = randn_like(x_cur) * beta
 
-        x_next = x_hat + (t_next - t_hat) * epsilon_predictor_cur + random_diffusion
+        #x_next = x_hat + (t_next - t_hat) * epsilon_predictor_cur + random_diffusion
+        x_next = r_val * x_hat + (1 - r_val) * x_predictor_cur
         # x_next = t_next/t_hat * x_hat + (1 - t_next/t_hat) * denoised  # eqivalently
         # Explicit Euler update: move from σ = t_hat down to the scheduled next σ = t_next using slope d_cur.
 
