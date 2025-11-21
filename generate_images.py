@@ -192,7 +192,7 @@ def edm_sampler(
     alt_sigma_min = 0.002
     alt_num_steps = 0        # >0 to enable the alternative schedule
     eta_divisor = float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard ODE EDM2 with a dedicated if statement below)
-    Heun_method="epsilon"  # one of "X", "epsilon", or None
+    Heun_method="X"  # one of "X", "epsilon", or None
 
     if alt_num_steps > 0:
         # Build dense alt steps (descending) between alt_sigma_max and alt_sigma_min
@@ -231,13 +231,13 @@ def edm_sampler(
     ], dtype=dtype, device=noise.device)
 
     betas_diffusion = torch.tensor([
-        43.820750055, 37.056938724, 31.198435771, 26.143576885, 21.799809479,
-        18.083093716, 14.917327801, 12.233797220, 9.970647575, 8.072380670,
-        6.489373495, 5.177419753, 4.097293556, 3.214334940, 2.498056800,
-        1.921772880, 1.462246414, 1.099359035, 0.815799531, 0.596772050,
-        0.429723313, 0.304088419, 0.211054793, 0.143343815, 0.095009680,
-        0.061254991, 0.038262609, 0.023043245, 0.013298259, 0.007297135,
-        0.003769064, 0.000000000
+        36.662013635, 30.858902915, 25.852908864, 21.552093680, 17.872989770,
+        14.740026867, 12.084983057, 9.846459379, 7.969377645, 6.404501137,
+        5.107977807, 4.040905633, 3.168919747, 2.461800968, 1.893105349,
+        1.439814351, 1.082005249, 0.802541356, 0.586781653, 0.422309410,
+        0.298679353, 0.207182933, 0.140631255, 0.093155182, 0.060022151,
+        0.037469196, 0.022551663, 0.013007109, 0.007133814, 0.003683362,
+        0.001766681, 0.000000000
     ], dtype=dtype, device=noise.device)
 
     # >>>>>>>>>>>>>>>>>>>>>>> END: Alternative schedule block <<<<<<<<<<<<<<<<<<<<<<<<<
@@ -318,8 +318,8 @@ def edm_sampler(
 
         random_diffusion = randn_like(x_cur) * beta
 
-        #original: x_next = x_hat + (t_next - t_hat) * epsilon_predictor_cur + random_diffusion
-        x_next = r_val * x_hat + (1 - r_val) * x_predictor_cur 
+        #original: x_next = x_hat + (t_next - t_hat) * epsilon_predictor_cur
+        x_next = r_val * x_hat + (1 - r_val) * x_predictor_cur
         # rewritten original:
         #x_next = t_next/t_hat * x_hat + (1 - t_next/t_hat) * denoised  # eqivalently
         # Explicit Euler update: move from σ = t_hat down to the scheduled next σ = t_next using slope d_cur.
@@ -332,7 +332,7 @@ def edm_sampler(
 
             if Heun_method == "epsilon":
                 #EDM Karras update: - we are allowed to average epsilon terms multiplied by difference of sigmas
-                x_next = x_hat + (t_next - t_hat) * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) + random_diffusion
+                x_next = x_hat + (t_next - t_hat) * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) 
                 # Heun correction (2nd order): replace the Euler result by the trapezoidal rule—average of start/end slopes times the step size, applied from the same base point x_hat.
             if Heun_method == "X":
             # Pokarized Heun update:
