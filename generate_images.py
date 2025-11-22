@@ -169,7 +169,7 @@ def edm_sampler(
         ref_Dx = gnet(x, t, labels).to(dtype)
         return ref_Dx.lerp(Dx, guidance)
 
-
+    #num_steps = 63
 
     # print all arguments
     print(f"EDM2 sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
@@ -347,8 +347,8 @@ def edm_sampler(
 
         0.002131431, 0.001470751, 0.000000000
     ], dtype=dtype, device=noise.device)
-    betas_diffusion = betas_diffusion_MSE
-    r_vals = r_vals_MSE
+    betas_diffusion = betas_diffusion_ML
+    r_vals = r_vals_ML
 
     # >>>>>>>>>>>>>>>>>>>>>>> END: Alternative schedule block <<<<<<<<<<<<<<<<<<<<<<<<<
 
