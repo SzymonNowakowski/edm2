@@ -219,6 +219,7 @@ def edm_sampler(
     # the code below since we don't need a special case for the last step
     # It mirrors the EDM behaviour too (but in EDM they also align it with the grid, which we don't do here).
     t_steps = torch.cat([t_steps, torch.zeros_like(t_steps[:1])])  # t_N = 0
+    num_steps = len(t_steps) - 1  #recalculating num_steps (for alternative path if added)
 
     r_vals_FLOW = torch.tensor([  #rrFLOW by Pokar - sigma ratios
         0.8366359, 0.8327429, 0.8286604, 0.8243743, 0.8198691,
@@ -378,7 +379,10 @@ def edm_sampler(
     # noise variable is expected to be standard Gaussian noise ~ N(0, I) of shape [N, C, H, W] (or whatever your model uses).
     # Multiplying by sigma_max gives a draw from N(0, sigma_max^2 I), which is the usual EDM2 starting point (pure noise).
     # It’s cast to match the integrator’s dtype.
-    for i, (t_cur, t_next, r_val, beta) in enumerate(zip(t_steps[:-1], t_steps[1:], r_vals, betas_diffusion)):  # 0, ..., N-1
+    for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])):  # 0, ..., N-1
+        r_val = r_vals[i] if i < len(r_vals) else r_vals[-1]
+        beta = betas_diffusion[i] if i < len(betas_diffusion) else betas_diffusion[-1]
+
         x_cur = x_next
 
         # ===================== Alternative schedule in-loop branch (mirrors EDM + continue) =====================
