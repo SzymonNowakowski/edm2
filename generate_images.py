@@ -169,7 +169,7 @@ def edm_sampler(
         ref_Dx = gnet(x, t, labels).to(dtype)
         return ref_Dx.lerp(Dx, guidance)
 
-    num_steps = 63
+    # num_steps = 63
 
     # print all arguments
     print(f"EDM2 sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
@@ -190,9 +190,9 @@ def edm_sampler(
     # The alternative schedule replaces the segment inside [alt_sigma_min, alt_sigma_max] with a denser path.
     alt_sigma_max = 80.0          # the alternative schedule
     alt_sigma_min = 0.002
-    alt_num_steps = 0        # >0 to enable the alternative schedule
-    eta_divisor = float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard ODE EDM2 with a dedicated if statement below)
-    Heun_method=None  # one of "X", "epsilon", or None
+    alt_num_steps = 32        # >0 to enable the alternative schedule
+    eta_divisor = 1 # float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard ODE EDM2 with a dedicated if statement below)
+    Heun_method="epsilon"  # one of "X", "epsilon", or None
 
     if alt_num_steps > 0:
         # Build dense alt steps (descending) between alt_sigma_max and alt_sigma_min
@@ -219,6 +219,26 @@ def edm_sampler(
     # the code below since we don't need a special case for the last step
     # It mirrors the EDM behaviour too (but in EDM they also align it with the grid, which we don't do here).
     t_steps = torch.cat([t_steps, torch.zeros_like(t_steps[:1])])  # t_N = 0
+
+    r_vals_FLOW = torch.tensor([  #rrFLOW by Pokar - sigma ratios
+        0.8366359, 0.8327429, 0.8286604, 0.8243743, 0.8198691,
+        0.8151275, 0.8101306, 0.8048572, 0.7992839, 0.7933844,
+        0.7871296, 0.7804864, 0.7734178, 0.7658819, 0.7578312,
+        0.7492115, 0.7399610, 0.7300084, 0.7192719, 0.7076561,
+        0.6950504, 0.6813246, 0.6663258, 0.6498723, 0.6317477,
+        0.6116921, 0.5893917, 0.5644651, 0.5364472, 0.5047683,
+        0.4687320, 0.0000000
+    ], dtype=dtype, device=noise.device)
+
+    betas_diffusion_FLOW = torch.tensor([
+        0.0000000, 0.0000000, 0.0000000, 0.0000000, 0.0000000,
+        0.0000000, 0.0000000, 0.0000000, 0.0000000, 0.0000000,
+        0.0000000, 0.0000000, 0.0000000, 0.0000000, 0.0000000,
+        0.0000000, 0.0000000, 0.0000000, 0.0000000, 0.0000000,
+        0.0000000, 0.0000000, 0.0000000, 0.0000000, 0.0000000,
+        0.0000000, 0.0000000, 0.0000000, 0.0000000, 0.0000000,
+        0.0000000, 0.0000000
+    ], dtype=dtype, device=noise.device)
 
     r_vals_MSE = torch.tensor([  #rrMSE by Pokar
         0.8366357, 0.8327426, 0.8286600, 0.8243737, 0.8198681,
@@ -284,7 +304,7 @@ def edm_sampler(
         0.001725404, 0.001470735, 0.000000000
     ], dtype=dtype, device=noise.device)
 
-    r_vals_ML = torch.tensor([  #rrML by Pokar
+    r_vals_ML = torch.tensor([  #rrML by Pokar - sigma ratios squared
         0.6999597, 0.6934608, 0.6866781, 0.6795930, 0.6721853,
         0.6644328, 0.6563115, 0.6477951, 0.6388547, 0.6294589,
         0.6195730, 0.6091590, 0.5981751, 0.5865751, 0.5743081,
@@ -347,8 +367,8 @@ def edm_sampler(
 
         0.002131431, 0.001470751, 0.000000000
     ], dtype=dtype, device=noise.device)
-    betas_diffusion = betas_diffusion_ML_63
-    r_vals = r_vals_ML_63
+    betas_diffusion = betas_diffusion_FLOW
+    r_vals = r_vals_FLOW
 
     # >>>>>>>>>>>>>>>>>>>>>>> END: Alternative schedule block <<<<<<<<<<<<<<<<<<<<<<<<<
 
@@ -386,15 +406,27 @@ def edm_sampler(
 
             # EDM2 denoiser: denoise(x, t) returns ~X0 (guided if guidance != 1)
             x_predictor_cur = denoise(x_cur, sigma_t)
+            epsilon_predictor_cur = (x_hat - x_predictor_cur) / t_hat
 
             # Draw fresh noise and update.
-            cur_plus_noise = coef_Xt * x_cur + coef_eps * randn_like(x_cur)
-            x_next = coef_X0 * x_predictor_cur + cur_plus_noise
+            fresh_noise = randn_like(x_cur)
+            cur_plus_noise = coef_Xt * x_cur + coef_eps * fresh_noise
+            x_next = coef_X0 * x_predictor_cur + cur_plus_noise    #it is an X-paramaetrization based update, but for Euler they are equivalent
 
             ######## Apply 2nd order (Heun) correction.
-            if i < num_steps - 1: # Heun (prediction–correction) is only applied if there is another step after this.
-                denoised_next = denoise(x_next, sigma_tm1)
-                x_next = coef_X0 * (denoised_next + x_predictor_cur) * 0.5 + cur_plus_noise
+            if Heun_method is not None and i < num_steps - 1: # Heun (prediction–correction) is only applied if there is another step after this.
+                x_predictor_next = denoise(x_next, t_next)
+                epsilon_predictor_next = (x_next - x_predictor_next) / t_next
+
+                if Heun_method == "epsilon":
+                    under_sqrt = 1 - ( (t_next ** 2) / (t_hat ** 2) )
+
+                    coef_epsilon = t_next / eta_divisor * torch.sqrt(eta_divisor ** 2 - under_sqrt) - t_hat
+                    coef_noise = t_next / eta_divisor * torch.sqrt(under_sqrt)
+
+                    x_next = x_hat + coef_epsilon * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) + coef_noise * fresh_noise
+                if Heun_method == "X":
+                    x_next = coef_X0 * (x_predictor_next + x_predictor_cur) * 0.5 + cur_plus_noise
 
             continue  # Skip the standard EDM2 (churn + Heun) path on alt steps
         # ========================================================================================================
