@@ -406,7 +406,7 @@ def edm_sampler(
 
             # EDM2 denoiser: denoise(x, t) returns ~X0 (guided if guidance != 1)
             x_predictor_cur = denoise(x_cur, sigma_t)
-            epsilon_predictor_cur = (x_hat - x_predictor_cur) / t_hat
+            epsilon_predictor_cur = (x_cur - x_predictor_cur) / sigma_t
 
             # Draw fresh noise and update.
             fresh_noise = randn_like(x_cur)
@@ -415,16 +415,16 @@ def edm_sampler(
 
             ######## Apply 2nd order (Heun) correction.
             if Heun_method is not None and i < num_steps - 1: # Heun (prediction–correction) is only applied if there is another step after this.
-                x_predictor_next = denoise(x_next, t_next)
-                epsilon_predictor_next = (x_next - x_predictor_next) / t_next
+                x_predictor_next = denoise(x_next, sigma_tm1)
+                epsilon_predictor_next = (x_next - x_predictor_next) / sigma_tm1
 
                 if Heun_method == "epsilon":
-                    under_sqrt = 1 - ( (t_next ** 2) / (t_hat ** 2) )
+                    under_sqrt = 1 - ( (sigma_tm1 ** 2) / (sigma_t ** 2) )
 
-                    coef_epsilon = t_next / eta_divisor * torch.sqrt(eta_divisor ** 2 - under_sqrt) - t_hat
-                    coef_noise = t_next / eta_divisor * torch.sqrt(under_sqrt)
+                    coef_epsilon = sigma_tm1 / eta_divisor * torch.sqrt(eta_divisor ** 2 - under_sqrt) - sigma_t
+                    coef_noise = sigma_tm1 / eta_divisor * torch.sqrt(under_sqrt)
 
-                    x_next = x_hat + coef_epsilon * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) + coef_noise * fresh_noise
+                    x_next = x_cur + coef_epsilon * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) + coef_noise * fresh_noise
                 if Heun_method == "X":
                     x_next = coef_X0 * (x_predictor_next + x_predictor_cur) * 0.5 + cur_plus_noise
 
