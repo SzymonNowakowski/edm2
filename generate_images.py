@@ -193,6 +193,7 @@ def edm_sampler(
     alt_num_steps = 32        # >0 to enable the alternative schedule
     eta_divisor = 1 # float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard ODE EDM2 with a dedicated if statement below)
     Heun_method="epsilon"  # one of "X", "epsilon", or None
+    Euler_method="ODE"  # one of "ODE", "SDE"
 
     if alt_num_steps > 0:
         # Build dense alt steps (descending) between alt_sigma_max and alt_sigma_min
@@ -415,7 +416,10 @@ def edm_sampler(
             # Draw fresh noise and update.
             fresh_noise = randn_like(x_cur)
             cur_plus_noise = coef_Xt * x_cur + coef_noise * fresh_noise
-            x_next = coef_X0 * x_predictor_cur + cur_plus_noise    #it is an X-paramaetrization based update, but for Euler they are equivalent
+            if Euler_method == "SDE":
+                x_next = coef_X0 * x_predictor_cur + cur_plus_noise    #it is an X-paramaetrization based update, but for Euler they are equivalent
+            if Euler_method == "ODE":
+                x_next = x_cur + (sigma_tm1 - sigma_t) * epsilon_predictor_cur
 
             ######## Apply 2nd order (Heun) correction.
             if Heun_method is not None and i < num_steps - 1: # Heun (prediction–correction) is only applied if there is another step after this.
@@ -428,8 +432,10 @@ def edm_sampler(
 
                     coef_epsilon = sigma_tm1 / eta_divisor * torch.sqrt(torch.clamp(eta_divisor ** 2 - under_sqrt, min=0.0)) - sigma_t
                     coef_noise = sigma_tm1 / eta_divisor * torch.sqrt(under_sqrt)
-
-                    x_next = x_cur + coef_epsilon * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) + (coef_noise - 0.5*eta_used_tm1*coef_epsilon) * fresh_noise
+                    if Euler_method=="SDE":   # part of the noise must be removed for stochastic Euler
+                        x_next = x_cur + coef_epsilon * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) + (coef_noise - 0.5*eta_used_tm1*coef_epsilon) * fresh_noise
+                    if Euler_method=="ODE":
+                        x_next = x_cur + coef_epsilon * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) + coef_noise * fresh_noise
                 if Heun_method == "X":
                     x_next = coef_X0 * (x_predictor_next + x_predictor_cur) * 0.5 + cur_plus_noise
 
@@ -463,10 +469,16 @@ def edm_sampler(
         # Compute the ODE slope at (x_hat, t_hat).
         # For the EDM probability-flow ODE, dx/dσ = (x - X0)/σ. Replacing X0 by denoised gives this slope.
 
+        # TODO: this should be removed later on
         random_diffusion = randn_like(x_cur) * beta
 
         #original: x_next = x_hat + (t_next - t_hat) * epsilon_predictor_cur
-        x_next = r_val * x_hat + (1 - r_val) * x_predictor_cur + random_diffusion
+        x_next = r_val * x_hat + (1 - r_val) * x_predictor_cur
+
+        #TODO: this should be removed later on
+        if Euler_method=="SDE":
+             x_next = x_next + random_diffusion
+
         # rewritten original:
         #x_next = t_next/t_hat * x_hat + (1 - t_next/t_hat) * denoised  # eqivalently
         # Explicit Euler update: move from σ = t_hat down to the scheduled next σ = t_next using slope d_cur.
@@ -483,6 +495,7 @@ def edm_sampler(
                 # Heun correction (2nd order): replace the Euler result by the trapezoidal rule—average of start/end slopes times the step size, applied from the same base point x_hat.
             if Heun_method == "X":
             # Pokarized Heun update:
+                # TODO: random_diffusion should be removed later on
                 x_next = r_val * x_hat + (1 - r_val) * (0.5 * x_predictor_cur + 0.5 * x_predictor_next) + random_diffusion
 
 
