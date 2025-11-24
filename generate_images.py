@@ -406,7 +406,7 @@ def edm_sampler(
             # (alpha==1 => coef_X0 = 1 - coef_Xt)
             coef_Xt  = r_sqrt * square_root_tm1_s
             coef_X0  = one - coef_Xt
-            coef_eps = sigma_tm1 * eta_used_tm1
+            coef_noise = sigma_tm1 * eta_used_tm1
 
             # EDM2 denoiser: denoise(x, t) returns ~X0 (guided if guidance != 1)
             x_predictor_cur = denoise(x_cur, sigma_t)
@@ -414,21 +414,22 @@ def edm_sampler(
 
             # Draw fresh noise and update.
             fresh_noise = randn_like(x_cur)
-            cur_plus_noise = coef_Xt * x_cur + coef_eps * fresh_noise
+            cur_plus_noise = coef_Xt * x_cur + coef_noise * fresh_noise
             x_next = coef_X0 * x_predictor_cur + cur_plus_noise    #it is an X-paramaetrization based update, but for Euler they are equivalent
 
             ######## Apply 2nd order (Heun) correction.
             if Heun_method is not None and i < num_steps - 1: # Heun (prediction–correction) is only applied if there is another step after this.
                 x_predictor_next = denoise(x_next, sigma_tm1)
                 epsilon_predictor_next = (x_next - x_predictor_next) / sigma_tm1
+                #eta_used_tm1/2 is part of fresh noise, that will be already used in epsilon_predictor_next/2
 
                 if Heun_method == "epsilon":
-                    under_sqrt = 1 - ( (sigma_tm1 ** 2) / (sigma_t ** 2) )
+                    under_sqrt = torch.clamp(1 - ( (sigma_tm1 ** 2) / (sigma_t ** 2) ), min=0.0)
 
-                    coef_epsilon = sigma_tm1 / eta_divisor * torch.sqrt(eta_divisor ** 2 - under_sqrt) - sigma_t
+                    coef_epsilon = sigma_tm1 / eta_divisor * torch.sqrt(torch.clamp(eta_divisor ** 2 - under_sqrt, min=0.0)) - sigma_t
                     coef_noise = sigma_tm1 / eta_divisor * torch.sqrt(under_sqrt)
 
-                    x_next = x_cur + coef_epsilon * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) + coef_noise * fresh_noise
+                    x_next = x_cur + coef_epsilon * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) + (coef_noise - 0.5*eta_used_tm1*coef_epsilon) * fresh_noise
                 if Heun_method == "X":
                     x_next = coef_X0 * (x_predictor_next + x_predictor_cur) * 0.5 + cur_plus_noise
 
