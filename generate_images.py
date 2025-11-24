@@ -192,7 +192,7 @@ def edm_sampler(
     alt_sigma_min = 0.002
     alt_num_steps = 32        # >0 to enable the alternative schedule
     eta_divisor = 1 # float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard ODE EDM2 with a dedicated if statement below)
-    Heun_method="epsilon"  # one of "X", "epsilon", or None
+    Heun_method="X"  # one of "X", "epsilon", or None
     Euler_method="ODE"  # one of "ODE", "SDE"
 
     if alt_num_steps > 0:
