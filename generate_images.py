@@ -192,7 +192,7 @@ def edm_sampler(
     alt_sigma_min = 0.002
     alt_num_steps = 32        # >0 to enable the alternative schedule
     eta_divisor = 1 # float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard ODE EDM2 with a dedicated if statement below)
-    Heun_method="X"  # one of "X", "epsilon", or None
+    Heun_method="epsilon"  # one of "X", "epsilon", or None
     Euler_method="ODE"  # one of "ODE", "SDE"
 
     if alt_num_steps > 0:
@@ -399,15 +399,15 @@ def edm_sampler(
             # Optimal eta for the variance-preserving step, then reduce it by eta_divisor
             one = torch.as_tensor(1.0, dtype=dtype, device=noise.device)
             eta_optim_tm1 = torch.sqrt(torch.clamp(one - gamma_tm1_reciprocal, min=0.0))
-            eta_used_tm1  = eta_optim_tm1 / eta_divisor
+            eta_tm1  = eta_optim_tm1 / eta_divisor
 
             # Coefficients for blending current state, predicted x0, and fresh noise
-            square_root_tm1_s = torch.sqrt(torch.clamp(one - eta_used_tm1 ** 2, min=0.0))
+            square_root_tm1_s = torch.sqrt(torch.clamp(one - eta_tm1 ** 2, min=0.0))
             r_sqrt = torch.sqrt(torch.clamp(gamma_tm1_reciprocal, min=0.0, max=1.0))  # == (sigma_tm1 / sigma_t)
             # (alpha==1 => coef_X0 = 1 - coef_Xt)
             coef_Xt  = r_sqrt * square_root_tm1_s
             coef_X0  = one - coef_Xt
-            coef_noise = sigma_tm1 * eta_used_tm1
+            coef_noise = sigma_tm1 * eta_tm1
 
             # EDM2 denoiser: denoise(x, t) returns ~X0 (guided if guidance != 1)
             x_predictor_cur = denoise(x_cur, sigma_t)
@@ -425,7 +425,7 @@ def edm_sampler(
             if Heun_method is not None and i < num_steps - 1: # Heun (prediction–correction) is only applied if there is another step after this.
                 x_predictor_next = denoise(x_next, sigma_tm1)
                 epsilon_predictor_next = (x_next - x_predictor_next) / sigma_tm1
-                #eta_used_tm1/2 is part of fresh noise, that will be already used in epsilon_predictor_next/2
+                #eta_tm1/2 is part of fresh noise, that will be already used in epsilon_predictor_next/2
 
                 if Heun_method == "epsilon":
                     under_sqrt = torch.clamp(1 - ( (sigma_tm1 ** 2) / (sigma_t ** 2) ), min=0.0)
@@ -433,7 +433,7 @@ def edm_sampler(
                     coef_epsilon = sigma_tm1 / eta_divisor * torch.sqrt(torch.clamp(eta_divisor ** 2 - under_sqrt, min=0.0)) - sigma_t
                     coef_noise = sigma_tm1 / eta_divisor * torch.sqrt(under_sqrt)
                     if Euler_method=="SDE":   # part of the noise must be removed for stochastic Euler
-                        x_next = x_cur + coef_epsilon * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) + (coef_noise - 0.5*eta_used_tm1*coef_epsilon) * fresh_noise
+                        x_next = x_cur + coef_epsilon * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) + (coef_noise - 0.5*eta_tm1*coef_epsilon) * fresh_noise
                     if Euler_method=="ODE":
                         x_next = x_cur + coef_epsilon * (0.5 * epsilon_predictor_cur + 0.5 * epsilon_predictor_next) + coef_noise * fresh_noise
                 if Heun_method == "X":
