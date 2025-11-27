@@ -280,7 +280,7 @@ def edm_sampler(
     alt_sigma_min = 0.002
     alt_num_steps = 0        # >0 to enable the alternative schedule
     eta_divisor = 1 # float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard ODE EDM2 with a dedicated if statement below)
-    Heun_method="X"  # one of "X", "epsilon", or None
+    Heun_method="epsilon"  # one of "X", "epsilon", or None
     Euler_method="SDE"  # one of "ODE", "SDE"
 
     if alt_num_steps > 0:
@@ -311,8 +311,8 @@ def edm_sampler(
     num_steps = len(t_steps) - 1  #recalculating num_steps (for alternative path if added)
 
     rrFLOW, rrMSE, rrML, betaFLOW, betaMSE, betaML = rr(num_steps, dtype, noise.device)
-    betas_diffusion = betaML
-    r_vals = rrML
+    betas_diffusion = betaFLOW
+    r_vals = rrFLOW
 
     # >>>>>>>>>>>>>>>>>>>>>>> END: Alternative schedule block <<<<<<<<<<<<<<<<<<<<<<<<<
 
