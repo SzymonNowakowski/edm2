@@ -311,8 +311,8 @@ def edm_sampler(
     num_steps = len(t_steps) - 1  #recalculating num_steps (for alternative path if added)
 
     rrFLOW, rrMSE, rrML, betaFLOW, betaMSE, betaML = rr(num_steps, dtype, noise.device)
-    betas_diffusion = betaFLOW
-    r_vals = rrFLOW
+    betas_diffusion = betaMSE
+    r_vals = rrMSE
 
     # >>>>>>>>>>>>>>>>>>>>>>> END: Alternative schedule block <<<<<<<<<<<<<<<<<<<<<<<<<
 
