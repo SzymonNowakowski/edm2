@@ -257,7 +257,7 @@ def edm_sampler(
         ref_Dx = gnet(x, t, labels).to(dtype)
         return ref_Dx.lerp(Dx, guidance)
 
-    num_steps = 128
+    num_steps = 255
 
     # print all arguments
     print(f"EDM2 sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
@@ -280,7 +280,7 @@ def edm_sampler(
     alt_sigma_min = 0.002
     alt_num_steps = 0        # >0 to enable the alternative schedule
     eta_divisor = 1 # float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard ODE EDM2 with a dedicated if statement below)
-    Heun_method="epsilon"  # one of "X", "epsilon", or None
+    Heun_method=None  # one of "X", "epsilon", or None
     Euler_method="SDE"  # one of "ODE", "SDE"
 
     if alt_num_steps > 0:
