@@ -343,8 +343,8 @@ def edm_sampler(
       0.99998943, 0.99999745
     ], dtype, noise.device)
 
-    betas_diffusion = betaFLOW
-    r_vals = rrFLOW
+    betas_diffusion = betaMSE
+    r_vals = rrMSE
 
     # >>>>>>>>>>>>>>>>>>>>>>> END: Alternative schedule block <<<<<<<<<<<<<<<<<<<<<<<<<
 
