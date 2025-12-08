@@ -341,7 +341,7 @@ def edm_sampler(
       0.87972935, 0.93076593, 0.96322515, 0.98201601, 0.99191762,
       0.99666674, 0.99874006, 0.99956394, 0.99986193, 0.99996003,
       0.99998943, 0.99999745
-    ], dtype, noise.device)
+    ]), dtype, noise.device)
 
     betas_diffusion = betaMSE
     r_vals = rrMSE
