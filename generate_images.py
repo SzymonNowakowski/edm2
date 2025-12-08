@@ -150,26 +150,54 @@ config_presets = {
     'edm2-img64-s-autog-dino':         dnnlib.EasyDict(net=f'{model_root}/edm2-img64-s-1073741-0.105.pkl',         gnet=f'{model_root}/edm2-img64-xs-0134217-0.175.pkl',         guidance=2.20), # fd_dinov2 = 31.85
 }
 
-
-import torch
-
-
-def rr(num_steps: int, res_dtype: torch.dtype, device: torch.device):
+def rr_time_schedule(num_steps: int, time_schedule, res_dtype: torch.dtype, device: torch.device):
     """
     Implementation of the R logic in PyTorch.
     Returns:
-        rrFLOW, rrMSE, rrML, betaFLOW, betaMSE, betaML
-    Each vector has length num_steps, sorted from largest to smallest,
+        rrFLOW, rrMSE, rrML, betaFLOW, betaMSE, betaML, sigmas
+    Each vector (but the last) has length num_steps, sorted from largest to smallest,
     with 0.0 appended at the end.
+
+    sigmas are length num_step+1
+
+    input time runs from 0 to 1.0
     """
+
     num_steps = int(num_steps)
     dtype = torch.float64
 
-    # s1 = seq(0.002^(1/7), 80^(1/7), len=TT)^7
-    start = 0.002 ** (1.0 / 7.0)
-    end = 80.0 ** (1.0 / 7.0)
-    s1_root = torch.linspace(start, end, num_steps, dtype=dtype, device=device)
-    s1 = s1_root ** 7.0
+    # check length of time_schedule and num_steps
+    if time_schedule is not None and len(time_schedule) != num_steps:
+        raise ValueError(
+            f"Expected time_schedule of length {num_steps}, "
+            f"got {len(time_schedule)}."
+        )
+
+    time_inferred = False
+
+    if time_schedule is None:
+          # s1 = seq(0.002^(1/7), 80^(1/7), len=TT)^7
+      start = 80.0 ** (1.0 / 7.0)
+      end = 0.002 ** (1.0 / 7.0)
+      sigma_root = torch.linspace(start, end, num_steps, dtype=dtype, device=device)
+      sigma = sigma_root ** 7.0
+
+      # tt = pnorm(-log(sigma), 0.4, 1)   (R)
+      normal_dist = torch.distributions.Normal(loc=torch.tensor(0.4, dtype=dtype, device=device),
+                                                 scale=torch.tensor(1.0, dtype=dtype, device=device))
+      time_schedule = normal_dist.cdf(-torch.log(sigma))
+      #print("Inferred time:",time_schedule)
+      time_inferred = True
+
+    time_schedule = time_schedule.to(dtype=dtype, device=device)  #conversion to common type and device for all paths
+
+    normal_dist_back = torch.distributions.Normal(loc=torch.tensor(0.4, dtype=dtype, device=device),
+                                                  scale=torch.tensor(1.0, dtype=dtype, device=device))
+    s1 = torch.exp(-normal_dist_back.icdf(time_schedule))  # sigma from time
+
+    #if time_inferred:
+      #assert torch.allclose(sigma, s1, atol=1e-6), "sigma -> time -> sigma mismatch"
+
 
     # roO = 1/s1
     ro0 = 1.0 / s1
@@ -177,8 +205,8 @@ def rr(num_steps: int, res_dtype: torch.dtype, device: torch.device):
     # R:
     #   roO[-TT] = all except the last one  -> ro0[:-1]
     #   roO[-1]  = all except the first one -> ro0[1:]
-    ro0_head = ro0[:-1]  # roO[-TT]
-    ro0_tail = ro0[1:]   # roO[-1]
+    ro0_head = ro0[1:]   # roO[-TT]
+    ro0_tail = ro0[:-1]  # roO[-1]
 
     # gaO = (roO[-TT]/roO[-1])^2
     ga0 = (ro0_head / ro0_tail) ** 2.0  # (ro_new / ro_old)^2
@@ -213,20 +241,13 @@ def rr(num_steps: int, res_dtype: torch.dtype, device: torch.device):
     # betaML = sqrt(1 - 1/gaO)/roO[-TT]
     betaML = torch.sqrt(1.0 - 1.0 / ga0) / ro0_head
 
-    # --- NEW STEP: reverse vectors so they are sorted from largest to smallest ---
-    rrFLOW = torch.flip(rrFLOW, dims=[0])
-    rrMSE  = torch.flip(rrMSE,  dims=[0])
-    rrML   = torch.flip(rrML,   dims=[0])
-
-    betaMSE = torch.flip(betaMSE, dims=[0])
-    betaML  = torch.flip(betaML,  dims=[0])
-
     # FLOW: all zeros (same length as betaMSE/betaML before appending zero)
     betaFLOW = torch.zeros_like(betaMSE)
 
     # append 0.0 at the end so the vector has length num_steps
     zero = torch.zeros(1, dtype=dtype, device=device)
 
+    s1       = torch.cat([s1,   zero], dim=0).to(dtype = res_dtype)
     rrFLOW   = torch.cat([rrFLOW,   zero], dim=0).to(dtype = res_dtype)
     rrMSE    = torch.cat([rrMSE,    zero], dim=0).to(dtype = res_dtype)
     rrML     = torch.cat([rrML,     zero], dim=0).to(dtype = res_dtype)
@@ -234,8 +255,10 @@ def rr(num_steps: int, res_dtype: torch.dtype, device: torch.device):
     betaMSE  = torch.cat([betaMSE,  zero], dim=0).to(dtype = res_dtype)
     betaML   = torch.cat([betaML,   zero], dim=0).to(dtype = res_dtype)
 
-    return rrFLOW, rrMSE, rrML, betaFLOW, betaMSE, betaML
+    # --- ML to FLOW validity check
+    #assert torch.allclose(rrFLOW ** 2, rrML, atol=1e-6), "FLOW^2 to ML rr mismatch"
 
+    return rrFLOW, rrMSE, rrML, betaFLOW, betaMSE, betaML, s1
 
 
 #----------------------------------------------------------------------------
@@ -257,7 +280,7 @@ def edm_sampler(
         ref_Dx = gnet(x, t, labels).to(dtype)
         return ref_Dx.lerp(Dx, guidance)
 
-    num_steps = 255
+    num_steps = 32
 
     # print all arguments
     print(f"EDM2 sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
@@ -280,7 +303,7 @@ def edm_sampler(
     alt_sigma_min = 0.002
     alt_num_steps = 0        # >0 to enable the alternative schedule
     eta_divisor = 1 # float('inf') # divide the optimal eta; =1.0 -> optimal eta; >1.0 -> reduces noise; =float('inf') -> no noise (fallbacks to standard ODE EDM2 with a dedicated if statement below)
-    Heun_method=None  # one of "X", "epsilon", or None
+    Heun_method="X"  # one of "X", "epsilon", or None
     Euler_method="SDE"  # one of "ODE", "SDE"
 
     if alt_num_steps > 0:
@@ -310,9 +333,18 @@ def edm_sampler(
     t_steps = torch.cat([t_steps, torch.zeros_like(t_steps[:1])])  # t_N = 0
     num_steps = len(t_steps) - 1  #recalculating num_steps (for alternative path if added)
 
-    rrFLOW, rrMSE, rrML, betaFLOW, betaMSE, betaML = rr(num_steps, dtype, noise.device)
-    betas_diffusion = betaML
-    r_vals = rrML
+    rrFLOW, rrMSE, rrML, betaFLOW, betaMSE, betaML, t_steps = rr_time_schedule(num_steps, torch.tensor([
+      0.00000031, 0.00000146, 0.00000626, 0.00002449, 0.00008753,
+      0.00028591, 0.00085415, 0.00233565, 0.00585138, 0.01344545,
+      0.02837619, 0.05509628, 0.09862199, 0.16315867, 0.25025935,
+      0.35726125, 0.47691245, 0.59869879, 0.71153182, 0.80668639,
+      0.87972935, 0.93076593, 0.96322515, 0.98201601, 0.99191762,
+      0.99666674, 0.99874006, 0.99956394, 0.99986193, 0.99996003,
+      0.99998943, 0.99999745
+    ], dtype, noise.device)
+
+    betas_diffusion = betaFLOW
+    r_vals = rrFLOW
 
     # >>>>>>>>>>>>>>>>>>>>>>> END: Alternative schedule block <<<<<<<<<<<<<<<<<<<<<<<<<
 
