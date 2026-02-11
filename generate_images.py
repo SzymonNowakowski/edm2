@@ -828,7 +828,7 @@ def parse_int_list(s):
 @click.option('--S_min', 'S_min',           help='Stoch. min noise level', metavar='FLOAT',                         type=click.FloatRange(min=0), default=0, show_default=True)
 @click.option('--S_max', 'S_max',           help='Stoch. max noise level', metavar='FLOAT',                         type=click.FloatRange(min=0), default='inf', show_default=True)
 @click.option('--S_noise', 'S_noise',       help='Stoch. noise inflation', metavar='FLOAT',                         type=float, default=1, show_default=True)
-@click.option('--sampler_fn_name',          help="Sampler function: [default: 'edm_sampler']", metavar='STR',       type=click.Choice(['edm_sampler', 'pokar_sampler', 'velocity_sampler']), default='edm_sampler', show_default=True)
+@click.option('--sampler_fn_name',          help="Sampler function: [default: 'edm_sampler']", metavar='STR',       type=click.Choice(['edm_sampler', 'velocity_sampler', 'pokar_sampler']), default='edm_sampler', show_default=True)
 
 def cmdline(preset, **opts):
     """Generate random images using the given model.
