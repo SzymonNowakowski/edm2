@@ -492,7 +492,7 @@ def velocity_sampler(
         return ref_velocity.lerp(velocity, guidance)
 
 
-    Heun_method = False  # whether to apply Heun (prediction–correction) method for 2nd order accuracy; if False, only the Euler step is applied
+    Heun_method = True  # whether to apply Heun (prediction–correction) method for 2nd order accuracy; if False, only the Euler step is applied
 
     # print all arguments
     print(f"velocity sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
