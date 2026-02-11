@@ -737,7 +737,7 @@ def generate_images(
     # the networks were trained and serialized without these methods, so we need to add them back manually
     for network in [net, gnet]:
         if not hasattr(network, 't2stats'):
-            network.t2sigma = types.MethodType(Precond.t2stats, network)
+            network.t2stats = types.MethodType(Precond.t2stats, network)
 
         if not hasattr(network, 'velocity'):
             network.velocity = types.MethodType(Precond.velocity, network)
