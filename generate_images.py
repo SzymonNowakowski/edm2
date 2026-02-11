@@ -492,7 +492,7 @@ def velocity_sampler(
         return ref_velocity.lerp(velocity, guidance)
 
 
-    Heun_method = True
+    Heun_method = False  # whether to apply Heun (prediction–correction) method for 2nd order accuracy; if False, only the Euler step is applied
 
     # print all arguments
     print(f"velocity sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
@@ -501,19 +501,19 @@ def velocity_sampler(
     # t_steps should contain (num_step+1) values, uniform from 1 to 0, with t_steps[0] = 1.0 and t_steps[num_steps] = 0.0
     t_steps = torch.linspace(1.0, 0.0, steps=num_steps + 1, dtype=dtype, device=noise.device)
 
-    sigmas, _ = net.t2sigma(t_steps)
+    sigmas, r, a, b = net.t2stats(t_steps)
 
     # sigmas[0] is very close to sigma_max (like 77 vs 80) because we use clip in t->sigma calculation
     # sigmas[last] is close to 0.0, but this value will not be used in calculation
 
     print("The time steps:", t_steps.detach().cpu().numpy())
     print("The sigmas:", sigmas.detach().cpu().numpy())
+    print("The r:", r.detach().cpu().numpy())
+    print("The a:", a.detach().cpu().numpy())
+    print("The b:", b.detach().cpu().numpy())
+    x_next = net.sigma_data * noise.to(dtype)
+    # Initialize the state at the pure noise
 
-    x_next = net.sigma_data * noise.to(dtype) * sigmas[0]
-    # Initialize the state at the highest noise level (sigmas[0] ≈ sigma_max).
-    # in velocity sampler, noise variable is expected to be standard Gaussian noise ~ N(0, sigma_data^2 * I) of shape [N, C, H, W] (or whatever your model uses).
-    # Multiplying by sigma_max gives a draw from N(0, sigma_data^2 * sigma_max^2 I), which is the usual EDM2 starting point (pure noise).
-    # It’s cast to match the integrator’s dtype.
     for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])):  # 0, ..., num_steps-1  <- num_steps values
         x_cur = x_next
 
@@ -736,8 +736,8 @@ def generate_images(
     # register new methods from Precond class to the networks, so that they can be used in the sampler functions
     # the networks were trained and serialized without these methods, so we need to add them back manually
     for network in [net, gnet]:
-        if not hasattr(network, 't2sigma'):
-            network.t2sigma = types.MethodType(Precond.t2sigma, network)
+        if not hasattr(network, 't2stats'):
+            network.t2sigma = types.MethodType(Precond.t2stats, network)
 
         if not hasattr(network, 'velocity'):
             network.velocity = types.MethodType(Precond.velocity, network)

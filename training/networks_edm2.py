@@ -327,19 +327,19 @@ class Precond(torch.nn.Module):
 
 
 
-    def t2sigma(self, t, log_r=logr_normal):
+    def t2stats(self, t, log_r=logr_normal):
         t = t.to(torch.float32).reshape(-1, 1, 1, 1)
         r = log_r(t, self.sigma_data).exp()
         sigma = self.sigma_data / r
-        return sigma, r
+        sqrt_1_plus_r_sqr = (1 + r ** 2).sqrt()
+        a = r / sqrt_1_plus_r_sqr
+        b = 1 / sqrt_1_plus_r_sqr
+        return sigma, r, a, b
 
     def velocity(self, x, t, class_labels=None, log_r=logr_normal, dlogr_dt = dlogr_dt_normal, force_fp32=False, return_logvar=False, **unet_kwargs):
         x = x.to(torch.float32)
         t = t.to(torch.float32).reshape(-1, 1, 1, 1)
-        sigma, r = self.t2sigma(t, log_r=log_r)
-        sqrt_1_plus_r_sqr = (1 + r ** 2).sqrt()
-        a = r / sqrt_1_plus_r_sqr
-        b = 1 / sqrt_1_plus_r_sqr
+        sigma, r, a, b = self.t2stats(t, log_r=log_r)
 
         class_labels = None if self.label_dim == 0 else torch.zeros([1, self.label_dim], device=x.device) if class_labels is None else class_labels.to(torch.float32).reshape(-1, self.label_dim)
         dtype = torch.float16 if (self.use_fp16 and not force_fp32 and x.device.type == 'cuda') else torch.float32
