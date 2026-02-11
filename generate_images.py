@@ -444,6 +444,63 @@ def edm_sampler(
     return x_next
 
 
+def velocity_sampler(
+    net, noise, labels=None, gnet=None,
+    num_steps=32, sigma_min=0.002, sigma_max=80, rho=7, guidance=1,
+    S_churn=0, S_min=0, S_max=float('inf'), S_noise=1,
+    dtype=torch.float32, randn_like=torch.randn_like
+):
+    # Guided velocity
+    def velocity(x, t):
+        velocity = net.velocity(x, t, labels).to(dtype)
+        if guidance == 1:
+            return velocity
+        ref_velocity = gnet.velocity(x, t, labels).to(dtype)
+        return ref_velocity.lerp(velocity, guidance)
+
+
+    Heun_method=False
+
+    # print all arguments
+    print(f"velocity sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
+
+    # Time step discretization.
+    # t_steps should contain (num_step+1) values, uniform from 1 to 0, with t_steps[0] = 1.0 and t_steps[num_steps] = 0.0
+    t_steps = torch.linspace(1.0, 0.0, steps=num_steps + 1, dtype=dtype, device=noise.device)
+
+    sigmas = net.t2sigma(t_steps)
+
+    # sigmas[0] is very close to sigma_max (like 77 vs 80) because we use clip in t->sigma calculation
+    # sigmas[last] is close to 0.0, but this value will not be used in calculation
+
+    print("The time steps:", t_steps.detach().cpu().numpy())
+    print("The sigmas:", sigmas.detach().cpu().numpy())
+
+    x_next = net.sigma_data * noise.to(dtype) * sigmas[0]
+    # Initialize the state at the highest noise level (sigmas[0] ≈ sigma_max).
+    # in velocity sampler, noise variable is expected to be standard Gaussian noise ~ N(0, sigma_data^2 * I) of shape [N, C, H, W] (or whatever your model uses).
+    # Multiplying by sigma_max gives a draw from N(0, sigma_data^2 * sigma_max^2 I), which is the usual EDM2 starting point (pure noise).
+    # It’s cast to match the integrator’s dtype.
+    for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])):  # 0, ..., num_steps-1  <- num_steps values
+        x_cur = x_next
+
+        # Euler step.
+        velocity_cur = velocity(x_cur, t_cur)
+        # Compute the ODE slope at (x_hat, t_hat).
+        # For the EDM probability-flow ODE, dx/dσ = (x - X0)/σ. Replacing X0 by denoised gives this slope.
+
+        x_next = x_cur + (t_next - t_cur) * velocity_cur
+
+        # Apply 2nd order correction for all but the last step, i.e. num_steps-1 times in total
+        if Heun_method and i < num_steps - 1:  # Heun (prediction–correction) is only applied if there is another step after this
+            velocity_next = velocity(x_next, t_next)
+            # Prediction: Re-evaluate the slope at the end of the interval (x_next, t_next).
+            x_next = x_cur + (t_next - t_cur) * (0.5 * velocity_cur + 0.5 * velocity_next)
+            # Heun correction (2nd order): replace the Euler result by the trapezoidal
+            # rule—average of start/end slopes times the step size, applied from the same base point x_cur
+
+    return x_next
+
 def pokar_sampler(
         net, noise, labels=None, gnet=None,
         num_steps=32, sigma_min=0.002, sigma_max=80, rho=7, guidance=1,
@@ -739,7 +796,7 @@ def parse_int_list(s):
 @click.option('--S_min', 'S_min',           help='Stoch. min noise level', metavar='FLOAT',                         type=click.FloatRange(min=0), default=0, show_default=True)
 @click.option('--S_max', 'S_max',           help='Stoch. max noise level', metavar='FLOAT',                         type=click.FloatRange(min=0), default='inf', show_default=True)
 @click.option('--S_noise', 'S_noise',       help='Stoch. noise inflation', metavar='FLOAT',                         type=float, default=1, show_default=True)
-@click.option('--sampler_fn_name',          help="Sampler function: [default: 'edm_sampler']", metavar='STR',       type=click.Choice(['edm_sampler', 'pokar_sampler']), default='edm_sampler', show_default=True)
+@click.option('--sampler_fn_name',          help="Sampler function: [default: 'edm_sampler']", metavar='STR',       type=click.Choice(['edm_sampler', 'pokar_sampler', 'velocity_sampler']), default='edm_sampler', show_default=True)
 
 def cmdline(preset, **opts):
     """Generate random images using the given model.
@@ -777,6 +834,8 @@ def cmdline(preset, **opts):
     if opts.sampler_fn_name == 'pokar_sampler':
         opts.sampler_fn = pokar_sampler
 
+    if opts.sampler_fn_name == 'velocity_sampler':
+        opts.sampler_fn = velocity_sampler
 
     # Generate.
     dist.init()

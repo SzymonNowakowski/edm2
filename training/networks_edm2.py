@@ -315,4 +315,45 @@ class Precond(torch.nn.Module):
             return D_x, logvar # u(sigma) in Equation 21
         return D_x
 
+    normal = torch.distributions.Normal(0., 1.)
+
+    logr_normal = lambda t, sigma_data, P_mean=-0.4, P_std=1.0, clamp = 1e-6: (
+            torch.log(torch.as_tensor(sigma_data, device=t.device, dtype=t.dtype))
+            - P_mean
+            - P_std * normal.icdf(t.clamp(clamp, 1.0 - clamp))
+    )
+    dlogr_dt_normal = lambda t, P_std=1.0, clamp = 1e-6: - P_std / normal.log_prob(normal.icdf(t.clamp(clamp, 1.0 - clamp))).exp()
+
+
+    def t2sigma(self, t, log_r=logr_normal):
+        t = t.to(torch.float32).reshape(-1, 1, 1, 1)
+        r = log_r(t, self.sigma_data).exp()
+        sigma = self.sigma_data / r
+        return sigma, r
+
+    def velocity(self, x, t, class_labels=None, log_r=logr_normal, dlogr_dt = dlogr_dt_normal, force_fp32=False, return_logvar=False, **unet_kwargs):
+        x = x.to(torch.float32)
+        t = t.to(torch.float32).reshape(-1, 1, 1, 1)
+        sigma, r = self.t2sigma(t, log_r=log_r)
+        sqrt_1_plus_r_sqr = (1 + r ** 2).sqrt()
+        a = r / sqrt_1_plus_r_sqr
+        b = 1 / sqrt_1_plus_r_sqr
+
+        class_labels = None if self.label_dim == 0 else torch.zeros([1, self.label_dim], device=x.device) if class_labels is None else class_labels.to(torch.float32).reshape(-1, self.label_dim)
+        dtype = torch.float16 if (self.use_fp16 and not force_fp32 and x.device.type == 'cuda') else torch.float32
+
+        # Preconditioning weights.
+        c_in = 1 / (self.sigma_data ** 2 + sigma ** 2).sqrt()
+        c_noise = sigma.flatten().log() / 4
+
+        # Run the model.
+        x_in = (c_in * x).to(dtype)
+        F_x = self.unet(x_in, c_noise, class_labels, **unet_kwargs)
+        velocity = dlogr_dt * a * b * self.sigma_data * F_x.to(torch.float32)
+
+        # Estimate uncertainty if requested.
+        if return_logvar:
+            logvar = self.logvar_linear(self.logvar_fourier(c_noise)).reshape(-1, 1, 1, 1)
+            return velocity, logvar # u(sigma) in Equation 21
+        return velocity
 #----------------------------------------------------------------------------
