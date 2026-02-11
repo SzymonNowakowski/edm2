@@ -492,7 +492,7 @@ def velocity_sampler(
         return ref_velocity.lerp(velocity, guidance)
 
 
-    Heun_method=False
+    Heun_method = True
 
     # print all arguments
     print(f"velocity sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
@@ -733,11 +733,13 @@ def generate_images(
     if gnet is None:
         gnet = net
 
+    # register new methods from Precond class to the networks, so that they can be used in the sampler functions
+    # the networks were trained and serialized without these methods, so we need to add them back manually
     for network in [net, gnet]:
         if not hasattr(network, 't2sigma'):
             network.t2sigma = types.MethodType(Precond.t2sigma, network)
 
-        if not hasattr(network, 'velocity'):  # ADD THIS
+        if not hasattr(network, 'velocity'):
             network.velocity = types.MethodType(Precond.velocity, network)
 
     # Initialize encoder.
