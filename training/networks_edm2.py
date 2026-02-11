@@ -351,7 +351,7 @@ class Precond(torch.nn.Module):
         # Run the model.
         x_in = (c_in * x).to(dtype)
         F_x = self.unet(x_in, c_noise, class_labels, **unet_kwargs)
-        velocity = dlogr_dt * a * b * self.sigma_data * F_x.to(torch.float32)
+        velocity = dlogr_dt(t) * a * b * self.sigma_data * F_x.to(torch.float32)
 
         # Estimate uncertainty if requested.
         if return_logvar:
