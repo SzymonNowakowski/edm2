@@ -271,6 +271,15 @@ class UNet(torch.nn.Module):
 #----------------------------------------------------------------------------
 # Preconditioning and uncertainty estimation.
 
+normal = torch.distributions.Normal(0., 1.)
+
+logr_normal = lambda t, sigma_data, P_mean=-0.4, P_std=1.0, clamp = 1e-6: (
+        torch.log(torch.as_tensor(sigma_data, device=t.device, dtype=t.dtype))
+        - P_mean
+        - P_std * normal.icdf(t.clamp(clamp, 1.0 - clamp))
+)
+dlogr_dt_normal = lambda t, P_std=1.0, clamp = 1e-6: - P_std / normal.log_prob(normal.icdf(t.clamp(clamp, 1.0 - clamp))).exp()
+
 @persistence.persistent_class
 class Precond(torch.nn.Module):
     def __init__(self,
@@ -315,14 +324,7 @@ class Precond(torch.nn.Module):
             return D_x, logvar # u(sigma) in Equation 21
         return D_x
 
-    normal = torch.distributions.Normal(0., 1.)
 
-    logr_normal = lambda t, sigma_data, P_mean=-0.4, P_std=1.0, clamp = 1e-6: (
-            torch.log(torch.as_tensor(sigma_data, device=t.device, dtype=t.dtype))
-            - P_mean
-            - P_std * normal.icdf(t.clamp(clamp, 1.0 - clamp))
-    )
-    dlogr_dt_normal = lambda t, P_std=1.0, clamp = 1e-6: - P_std / normal.log_prob(normal.icdf(t.clamp(clamp, 1.0 - clamp))).exp()
 
 
     def t2sigma(self, t, log_r=logr_normal):
