@@ -501,7 +501,7 @@ def velocity_sampler(
     # t_steps should contain (num_step+1) values, uniform from 1 to 0, with t_steps[0] = 1.0 and t_steps[num_steps] = 0.0
     t_steps = torch.linspace(1.0, 0.0, steps=num_steps + 1, dtype=dtype, device=noise.device)
 
-    sigmas = net.t2sigma(t_steps)
+    sigmas, _ = net.t2sigma(t_steps)
 
     # sigmas[0] is very close to sigma_max (like 77 vs 80) because we use clip in t->sigma calculation
     # sigmas[last] is close to 0.0, but this value will not be used in calculation
