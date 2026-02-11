@@ -9,6 +9,7 @@
 
 import os
 import re
+import types
 import warnings
 import click
 import tqdm
@@ -21,7 +22,7 @@ from torch_utils import distributed as dist
 
 import math
 
-
+from training.networks_edm2 import Precond
 
 warnings.filterwarnings('ignore', '`resume_download` is deprecated')
 warnings.filterwarnings('ignore', 'You are using `torch.load` with `weights_only=False`')
@@ -715,6 +716,7 @@ def generate_images(
             dist.print0(f'Loading main network from {net} ...')
         with dnnlib.util.open_url(net, verbose=(verbose and dist.get_rank() == 0)) as f:
             data = pickle.load(f)
+
         net = data['ema'].to(device)
         if encoder is None:
             encoder = data.get('encoder', None)
@@ -730,6 +732,13 @@ def generate_images(
             gnet = pickle.load(f)['ema'].to(device)
     if gnet is None:
         gnet = net
+
+    for network in [net, gnet]:
+        if not hasattr(network, 't2sigma'):
+            network.t2sigma = types.MethodType(Precond.t2sigma, network)
+
+        if not hasattr(network, 'velocity'):  # ADD THIS
+            network.velocity = types.MethodType(Precond.velocity, network)
 
     # Initialize encoder.
     assert encoder is not None
