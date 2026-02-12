@@ -501,15 +501,15 @@ def velocity_sampler(
     # Time step discretization.
     # t_steps should contain (num_step+1) values, uniform from 1 to 0, with t_steps[0] = 1.0 and t_steps[num_steps] = 0.0
     t_steps = torch.linspace(0.99999913232, 0.0, steps=num_steps + 1, dtype=torch.float64, device=noise.device)  #we need float64 for time
-    t_steps = torch.tensor([0.99999913232, 0.99999792435, 0.99999507932, 0.99998845412,
-                  0.99997322360, 0.99993871897, 0.99986183402, 0.99969369983,
-                  0.99933374140, 0.99858138433, 0.99705097864, 0.99403205436,
-                  0.98828030905, 0.97774522504, 0.95929237795, 0.92857203611,
-                  0.88030329152, 0.80930728213, 0.71248097572, 0.59139362160,
-                  0.45435508474, 0.31616975998, 0.19430168471, 0.10237586174,
-                  0.04464934451, 0.01544938750, 0.00402577941, 0.00074003172,
-                  0.00008826190, 0.00000612113, 0.00000021308, 0.00000000304, 0.0000000000],
-                 dtype=torch.float64, device=noise.device)   #overriding the linear schedule with the time-based equivalent of the default Karras' sigma-schedule for powers of 7
+    # t_steps = torch.tensor([0.99999913232, 0.99999792435, 0.99999507932, 0.99998845412,
+    #               0.99997322360, 0.99993871897, 0.99986183402, 0.99969369983,
+    #               0.99933374140, 0.99858138433, 0.99705097864, 0.99403205436,
+    #               0.98828030905, 0.97774522504, 0.95929237795, 0.92857203611,
+    #               0.88030329152, 0.80930728213, 0.71248097572, 0.59139362160,
+    #               0.45435508474, 0.31616975998, 0.19430168471, 0.10237586174,
+    #               0.04464934451, 0.01544938750, 0.00402577941, 0.00074003172,
+    #               0.00008826190, 0.00000612113, 0.00000021308, 0.00000000304, 0.0000000000],
+    #              dtype=torch.float64, device=noise.device)   #overriding the linear schedule with the time-based equivalent of the default Karras' sigma-schedule for powers of 7
 
     sigmas, r, a, b = net.t2stats(t_steps)
 

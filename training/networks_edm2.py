@@ -273,12 +273,12 @@ class UNet(torch.nn.Module):
 
 normal = torch.distributions.Normal(0., 1.)
 
-logr_normal = lambda t, sigma_data, P_mean=-0.4, P_std=1.0, clamp = 1e-8: (
+logr_normal = lambda t, sigma_data, P_mean=-0.4, P_std=1.0, clamp = 1e-9: (
         torch.log(torch.as_tensor(sigma_data, device=t.device, dtype=t.dtype))
         - P_mean
         - P_std * normal.icdf(t.clamp(clamp, 1.0 - clamp))
 )
-dlogr_dt_normal = lambda t, P_std=1.0, clamp = 1e-8: - P_std / normal.log_prob(normal.icdf(t.clamp(clamp, 1.0 - clamp))).exp()
+dlogr_dt_normal = lambda t, P_std=1.0, clamp = 1e-9: - P_std / normal.log_prob(normal.icdf(t.clamp(clamp, 1.0 - clamp))).exp()
 
 @persistence.persistent_class
 class Precond(torch.nn.Module):
