@@ -273,12 +273,12 @@ class UNet(torch.nn.Module):
 
 normal = torch.distributions.Normal(0., 1.)
 
-logr_normal = lambda t, sigma_data, P_mean=-0.4, P_std=1.0, clamp = 1e-6: (
+logr_normal = lambda t, sigma_data, P_mean=-0.4, P_std=1.0, clamp = 1e-8: (
         torch.log(torch.as_tensor(sigma_data, device=t.device, dtype=t.dtype))
         - P_mean
         - P_std * normal.icdf(t.clamp(clamp, 1.0 - clamp))
 )
-dlogr_dt_normal = lambda t, P_std=1.0, clamp = 1e-6: - P_std / normal.log_prob(normal.icdf(t.clamp(clamp, 1.0 - clamp))).exp()
+dlogr_dt_normal = lambda t, P_std=1.0, clamp = 1e-8: - P_std / normal.log_prob(normal.icdf(t.clamp(clamp, 1.0 - clamp))).exp()
 
 @persistence.persistent_class
 class Precond(torch.nn.Module):
@@ -328,18 +328,17 @@ class Precond(torch.nn.Module):
 
 
     def t2stats(self, t, log_r=logr_normal):
-        t = t.to(torch.float32).reshape(-1, 1, 1, 1)
         r = log_r(t, self.sigma_data).exp()
         sigma = self.sigma_data / r
         sqrt_1_plus_r_sqr = (1 + r ** 2).sqrt()
         a = r / sqrt_1_plus_r_sqr
         b = 1 / sqrt_1_plus_r_sqr
-        return sigma, r, a, b
+        return sigma.to(torch.float32), r.to(torch.float32), a.to(torch.float32), b.to(torch.float32)
 
     def velocity(self, x, t, class_labels=None, log_r=logr_normal, dlogr_dt = dlogr_dt_normal, force_fp32=False, return_logvar=False, **unet_kwargs):
         x = x.to(torch.float32)
-        t = t.to(torch.float32).reshape(-1, 1, 1, 1)
-        sigma, r, a, b = self.t2stats(t, log_r=log_r)
+        t = t.to(torch.float64).reshape(-1, 1, 1, 1)
+        sigma, r, a, b = self.t2stats(t, log_r=log_r)  #already in float32
 
         class_labels = None if self.label_dim == 0 else torch.zeros([1, self.label_dim], device=x.device) if class_labels is None else class_labels.to(torch.float32).reshape(-1, self.label_dim)
         dtype = torch.float16 if (self.use_fp16 and not force_fp32 and x.device.type == 'cuda') else torch.float32

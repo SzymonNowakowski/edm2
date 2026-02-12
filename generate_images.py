@@ -491,7 +491,7 @@ def velocity_sampler(
         ref_velocity = gnet.velocity(x, t, labels).to(dtype)
         return ref_velocity.lerp(velocity, guidance)
 
-    num_steps = 256
+    num_steps = 512
 
     Heun_method = True  # whether to apply Heun (prediction–correction) method for 2nd order accuracy; if False, only the Euler step is applied
 
@@ -500,7 +500,7 @@ def velocity_sampler(
 
     # Time step discretization.
     # t_steps should contain (num_step+1) values, uniform from 1 to 0, with t_steps[0] = 1.0 and t_steps[num_steps] = 0.0
-    t_steps = torch.linspace(1.0, 0.0, steps=num_steps + 1, dtype=dtype, device=noise.device)
+    t_steps = torch.linspace(1.0, 0.0, steps=num_steps + 1, dtype=torch.float64, device=noise.device)  #we need float64 for time
 
     sigmas, r, a, b = net.t2stats(t_steps)
 
