@@ -491,6 +491,7 @@ def velocity_sampler(
         ref_velocity = gnet.velocity(x, t, labels).to(dtype)
         return ref_velocity.lerp(velocity, guidance)
 
+    num_steps = 256
 
     Heun_method = True  # whether to apply Heun (prediction–correction) method for 2nd order accuracy; if False, only the Euler step is applied
 
