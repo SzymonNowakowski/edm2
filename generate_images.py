@@ -496,10 +496,12 @@ def velocity_sampler(
     # print all arguments
     print(f"velocity sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
 
+    num_steps = 512
+
     # Time step discretization.
     # t_steps should contain (num_step+1) values, uniform from 1 to 0, with t_steps[0] = 1.0 and t_steps[num_steps] = 0.0
-    t_steps = torch.linspace(1.0, 0.0, steps=num_steps + 1, dtype=torch.float64, device=noise.device)  #we need float64 for time
-    t_steps = torch.tensor([0.99999913232, 0.99999792435, 0.99999507932, 0.99998845412,
+    t_steps = torch.linspace(0.99999913232, 0.0, steps=num_steps + 1, dtype=torch.float64, device=noise.device)  #we need float64 for time
+    #t_steps = torch.tensor([0.99999913232, 0.99999792435, 0.99999507932, 0.99998845412,
                   0.99997322360, 0.99993871897, 0.99986183402, 0.99969369983,
                   0.99933374140, 0.99858138433, 0.99705097864, 0.99403205436,
                   0.98828030905, 0.97774522504, 0.95929237795, 0.92857203611,
@@ -511,8 +513,8 @@ def velocity_sampler(
 
     sigmas, r, a, b = net.t2stats(t_steps)
 
-    # sigmas[0] is very close to sigma_max (like 77 vs 80) because we use clip in t->sigma calculation
-    # sigmas[last] is close to 0.0, but this value will not be used in calculation
+    # sigmas[0] is sigma_max because we don't start from 1.0
+    # sigmas[last] is close to 0.0, but this value will not be used in calculation anyways
 
     print("The time steps:", t_steps.detach().cpu().numpy())
     print("The sigmas:", sigmas.detach().cpu().numpy())
