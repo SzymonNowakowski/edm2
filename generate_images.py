@@ -521,28 +521,32 @@ def velocity_sampler(
     print("The r:", r.detach().cpu().numpy())
     print("The a:", a.detach().cpu().numpy())
     print("The b:", b.detach().cpu().numpy())
-    x_next = net.sigma_data * noise.to(dtype)
-    # Initialize the state at the pure noise
+
+    z_next = net.sigma_data * noise.to(dtype)
+    # Initialize the state at the pure noise scaled by sigma_data. We will be integrating velocity of Z_t=a_t X + b_t sigma_data epsilon, with time running from 1.0 down to 0.0,
+    # with a changing from 0 to 1 and b changing from 1 to 0
+    # so at the end for t=0, Z_0 will be equal to X_0 in the original EDM2 sampler, i.e. the image
 
     for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])):  # 0, ..., num_steps-1  <- num_steps values
-        x_cur = x_next
+        z_cur = z_next
 
         # Euler step.
-        velocity_cur = velocity(x_cur, t_cur)
+        velocity_cur = velocity(z_cur, t_cur)
         # Compute the ODE slope at (x_hat, t_hat).
         # For the EDM probability-flow ODE, dx/dσ = (x - X0)/σ. Replacing X0 by denoised gives this slope.
 
-        x_next = x_cur - (t_next - t_cur) * velocity_cur
+        z_next = z_cur + (t_next - t_cur) * velocity_cur
 
         # Apply 2nd order correction for all but the last step, i.e. num_steps-1 times in total
         if Heun_method and i < num_steps - 1:  # Heun (prediction–correction) is only applied if there is another step after this
-            velocity_next = velocity(x_next, t_next)
+            velocity_next = velocity(z_next, t_next)
             # Prediction: Re-evaluate the slope at the end of the interval (x_next, t_next).
-            x_next = x_cur - (t_next - t_cur) * (0.5 * velocity_cur + 0.5 * velocity_next)
+            z_next = z_cur + (t_next - t_cur) * (0.5 * velocity_cur + 0.5 * velocity_next)
             # Heun correction (2nd order): replace the Euler result by the trapezoidal
             # rule—average of start/end slopes times the step size, applied from the same base point x_cur
 
-    return x_next
+    return z_next   # at the end of the time interval (t=0), z_0 is equal to x_0 in the original EDM2 sampler, i.e. the image
+
 
 def pokar_sampler(
         net, noise, labels=None, gnet=None,
