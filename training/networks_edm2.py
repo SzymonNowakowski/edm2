@@ -349,7 +349,7 @@ class Precond(torch.nn.Module):
         c_in = 1 / self.sigma_data                              # the variance scaling for the Z_t which has a constant variance of sigma_data ^ 2
 
         # c_noise = sigma.flatten().log() / 4                 # original EDM2 line
-        c_noise = -log_r_value / 4 # the effective noise is b/a = 1/r which, after gets log and scaled by 1/4, becomes -log_r(t) / 4
+        c_noise = -log_r_value.flatten() / 4 # the effective noise is b/a = 1/r which, after gets log and scaled by 1/4, becomes -log_r(t) / 4
 
         # Run the model.
         x_in = (c_in * z).to(dtype)
