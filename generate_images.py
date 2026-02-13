@@ -536,13 +536,13 @@ def velocity_sampler(
         # Compute the ODE slope at (x_hat, t_hat).
         # For the EDM probability-flow ODE, dx/dσ = (x - X0)/σ. Replacing X0 by denoised gives this slope.
 
-        z_next = z_cur + (t_next - t_cur) * velocity_cur
+        z_next = z_cur - (t_next - t_cur) * velocity_cur
 
         # Apply 2nd order correction for all but the last step, i.e. num_steps-1 times in total
         if Heun_method and i < num_steps - 1:  # Heun (prediction–correction) is only applied if there is another step after this
             velocity_next = velocity(z_next, t_next)
             # Prediction: Re-evaluate the slope at the end of the interval (x_next, t_next).
-            z_next = z_cur + (t_next - t_cur) * (0.5 * velocity_cur + 0.5 * velocity_next)
+            z_next = z_cur - (t_next - t_cur) * (0.5 * velocity_cur + 0.5 * velocity_next)
             # Heun correction (2nd order): replace the Euler result by the trapezoidal
             # rule—average of start/end slopes times the step size, applied from the same base point x_cur
 
