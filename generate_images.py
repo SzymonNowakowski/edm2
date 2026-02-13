@@ -496,7 +496,7 @@ def velocity_sampler(
     # print all arguments
     print(f"velocity sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
 
-    num_steps = 32
+    num_steps = 256
 
     # Time step discretization.
     # t_steps should contain (num_step+1) values, uniform from 1 to 0, with t_steps[0] = 1.0 and t_steps[num_steps] = 0.0
