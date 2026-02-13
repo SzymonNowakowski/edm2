@@ -496,7 +496,7 @@ def velocity_sampler(
     # print all arguments
     print(f"velocity sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
 
-    num_steps = 256
+    num_steps = 32
 
     # Time step discretization.
     # t_steps should contain (num_step+1) values, uniform from 1 to 0, with t_steps[0] = 1.0 and t_steps[num_steps] = 0.0
@@ -511,13 +511,14 @@ def velocity_sampler(
     #               0.00008826190, 0.00000612113, 0.00000021308, 0.00000000304, 0.0000000000],
     #              dtype=torch.float64, device=noise.device)   #overriding the linear schedule with the time-based equivalent of the default Karras' sigma-schedule for powers of 7
 
-    sigmas, r, a, b = net.t2stats(t_steps)
+    sigmas, log_r, r, a, b = net.t2stats(t_steps)
 
     # sigmas[0] is sigma_max because we don't start from 1.0
     # sigmas[last] is close to 0.0, but this value will not be used in calculation anyways
 
     print("The time steps:", t_steps.detach().cpu().numpy())
     print("The sigmas:", sigmas.detach().cpu().numpy())
+    print("The log(r):", log_r.detach().cpu().numpy())
     print("The r:", r.detach().cpu().numpy())
     print("The a:", a.detach().cpu().numpy())
     print("The b:", b.detach().cpu().numpy())

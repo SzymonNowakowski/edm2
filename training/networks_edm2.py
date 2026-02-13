@@ -328,17 +328,18 @@ class Precond(torch.nn.Module):
 
 
     def t2stats(self, t, log_r=logr_normal):
-        r = log_r(t, self.sigma_data).exp()
+        log_r_value = log_r(t, self.sigma_data)
+        r = log_r_value.exp()
         sigma = self.sigma_data / r
         sqrt_1_plus_r_sqr = (1 + r ** 2).sqrt()
         a = r / sqrt_1_plus_r_sqr
         b = 1 / sqrt_1_plus_r_sqr
-        return sigma.to(torch.float32), r.to(torch.float32), a.to(torch.float32), b.to(torch.float32)
+        return sigma.to(torch.float32), log_r_value.to(torch.float32), r.to(torch.float32), a.to(torch.float32), b.to(torch.float32)
 
     def velocity(self, z, t, class_labels=None, log_r=logr_normal, dlogr_dt = dlogr_dt_normal, force_fp32=False, return_logvar=False, **unet_kwargs):
         z = z.to(torch.float32)
         t = t.to(torch.float64).reshape(-1, 1, 1, 1)
-        sigma, r, a, b = self.t2stats(t, log_r=log_r)  #already in float32
+        sigma, log_r_value, r, a, b = self.t2stats(t, log_r=log_r)  #already in float32
 
         class_labels = None if self.label_dim == 0 else torch.zeros([1, self.label_dim], device=z.device) if class_labels is None else class_labels.to(torch.float32).reshape(-1, self.label_dim)
         dtype = torch.float16 if (self.use_fp16 and not force_fp32 and z.device.type == 'cuda') else torch.float32
@@ -348,7 +349,7 @@ class Precond(torch.nn.Module):
         c_in = 1 / self.sigma_data                              # the variance scaling for the Z_t which has a constant variance of sigma_data ^ 2
 
         # c_noise = sigma.flatten().log() / 4                 # original EDM2 line
-        c_noise = -log_r(t) / 4 # the effective noise is b/a = 1/r which, after gets log and scaled by 1/4, becomes -log_r(t) / 4
+        c_noise = -log_r_value / 4 # the effective noise is b/a = 1/r which, after gets log and scaled by 1/4, becomes -log_r(t) / 4
 
         # Run the model.
         x_in = (c_in * z).to(dtype)
