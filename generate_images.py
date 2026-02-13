@@ -491,7 +491,7 @@ def velocity_sampler(
         ref_velocity = gnet.velocity(x, t, labels).to(dtype)
         return ref_velocity.lerp(velocity, guidance)
 
-    Heun_method = False  # whether to apply Heun (prediction–correction) method for 2nd order accuracy; if False, only the Euler step is applied
+    Heun_method = True  # whether to apply Heun (prediction–correction) method for 2nd order accuracy; if False, only the Euler step is applied
 
     # print all arguments
     print(f"velocity sampler arguments: num_steps={num_steps}, sigma_min={sigma_min}, sigma_max={sigma_max}, rho={rho}, guidance={guidance}, S_churn={S_churn}, S_min={S_min}, S_max={S_max}, S_noise={S_noise}")
@@ -536,13 +536,13 @@ def velocity_sampler(
         # Compute the ODE slope at (x_hat, t_hat).
         # For the EDM probability-flow ODE, dx/dσ = (x - X0)/σ. Replacing X0 by denoised gives this slope.
 
-        z_next = z_cur - (t_next - t_cur) * velocity_cur
+        z_next = z_cur + (t_next - t_cur) * velocity_cur
 
         # Apply 2nd order correction for all but the last step, i.e. num_steps-1 times in total
         if Heun_method and i < num_steps - 1:  # Heun (prediction–correction) is only applied if there is another step after this
             velocity_next = velocity(z_next, t_next)
             # Prediction: Re-evaluate the slope at the end of the interval (x_next, t_next).
-            z_next = z_cur - (t_next - t_cur) * (0.5 * velocity_cur + 0.5 * velocity_next)
+            z_next = z_cur + (t_next - t_cur) * (0.5 * velocity_cur + 0.5 * velocity_next)
             # Heun correction (2nd order): replace the Euler result by the trapezoidal
             # rule—average of start/end slopes times the step size, applied from the same base point x_cur
 
